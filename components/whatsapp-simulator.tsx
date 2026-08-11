@@ -36,6 +36,7 @@ import {
   ArrowDownTrayIcon,
   UserIcon,
   TrashIcon,
+  SpeakerWaveIcon,
 } from '@heroicons/react/24/outline';
 import { simulateMessage, blobToBase64, SimulateApiError, type SimulateReply } from '@/lib/simulate-api';
 
@@ -60,6 +61,7 @@ type ChatMsg =
   | (BaseMsg & { sender: 'assistant'; kind: 'text'; text: string })
   | (BaseMsg & { sender: 'assistant'; kind: 'transcript'; text: string })
   | (BaseMsg & { sender: 'assistant'; kind: 'error'; text: string })
+  | (BaseMsg & { sender: 'assistant'; kind: 'voice'; audioUrl: string; durationSec: number })
   | (BaseMsg & {
       sender: 'assistant';
       kind: 'document';
@@ -68,6 +70,7 @@ type ChatMsg =
       caption: string;
       downloadUrl: string;
     });
+
 
 const SUPPORTED_UPLOAD_ACCEPT = 'application/pdf,image/png,image/jpeg,image/webp,image/heic';
 
@@ -98,6 +101,16 @@ export function WhatsAppSimulator() {
   const [composerValue, setComposerValue] = useState('');
   const [isRecording, setIsRecording] = useState(false);
   const [recordSeconds, setRecordSeconds] = useState(0);
+
+  function speakText(text: string) {
+    if ('speechSynthesis' in window) {
+      window.speechSynthesis.cancel();
+      const utterance = new SpeechSynthesisUtterance(text);
+      window.speechSynthesis.speak(utterance);
+    } else {
+      toast({ body: 'Text-to-speech is not supported in this browser.', type: 'error' });
+    }
+  }
 
   useEffect(() => {
     setMounted(true);
@@ -150,8 +163,10 @@ export function WhatsAppSimulator() {
   }
 
   function nextId(): string {
-    idCounter.current += 1;
-    return `local-${idCounter.current}`;
+    if (typeof window !== 'undefined' && window.crypto && window.crypto.randomUUID) {
+      return window.crypto.randomUUID();
+    }
+    return `local-${Date.now()}-${Math.random().toString(36).substring(2, 9)}`;
   }
 
   function addMessage(msg: ChatMsg) {
@@ -166,6 +181,15 @@ export function WhatsAppSimulator() {
     for (const reply of replies) {
       if (reply.type === 'text') {
         addMessage({ id: nextId(), sender: 'assistant', kind: 'text', text: reply.text, timestamp: new Date().toISOString() });
+      } else if (reply.type === 'voice') {
+        addMessage({
+          id: nextId(),
+          sender: 'assistant',
+          kind: 'voice',
+          audioUrl: reply.audioUrl,
+          durationSec: reply.durationSec,
+          timestamp: new Date().toISOString(),
+        });
       } else {
         addMessage({
           id: nextId(),
@@ -378,18 +402,50 @@ export function WhatsAppSimulator() {
       );
     }
 
+    if (msg.sender === 'assistant' && msg.kind === 'voice') {
+      return (
+        <ChatMessage key={msg.id} sender="assistant">
+          <ChatMessageBubble
+            variant="ghost"
+            metadata={<ChatMessageMetadata timestamp={<Timestamp value={msg.timestamp} format="time" />} />}
+          >
+            <VStack gap={1}>
+              <HStack gap={2} vAlign="center">
+                <Icon icon="microphone" size="sm" />
+                <Text type="body">Voice note · {msg.durationSec}s</Text>
+              </HStack>
+              <audio controls src={msg.audioUrl} className="h-8 w-56 max-w-full" />
+            </VStack>
+          </ChatMessageBubble>
+        </ChatMessage>
+      );
+    }
+
     if (msg.sender === 'assistant' && (msg.kind === 'text' || msg.kind === 'transcript' || msg.kind === 'error')) {
       const label = msg.kind === 'transcript' ? `🎙️ Transcribed: "${msg.text}"` : msg.kind === 'error' ? `⚠️ ${msg.text}` : msg.text;
+      const isPlainText = msg.kind === 'text';
       return (
         <ChatMessage key={msg.id} sender="assistant">
           <ChatMessageBubble variant="ghost" metadata={<ChatMessageMetadata timestamp={<Timestamp value={msg.timestamp} format="time" />} />}>
-            {label}
+            <HStack gap={2} vAlign="start">
+              <span className="flex-1">{label}</span>
+              {isPlainText && (
+                <IconButton
+                  label="Speak message"
+                  icon={<Icon icon={SpeakerWaveIcon} />}
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => speakText(msg.text)}
+                />
+              )}
+            </HStack>
           </ChatMessageBubble>
         </ChatMessage>
       );
     }
 
     if (msg.sender === 'assistant' && msg.kind === 'document') {
+      const isImage = msg.mimeType.startsWith('image/');
       return (
         <ChatMessage
           key={msg.id}
@@ -398,8 +454,17 @@ export function WhatsAppSimulator() {
         >
           <Card variant="muted" padding={3} width="100%" maxWidth={300}>
             <VStack gap={3}>
+              {isImage && (
+                <img
+                  src={msg.downloadUrl}
+                  alt={msg.filename}
+                  width={200}
+                  height={200}
+                  className="rounded-lg object-cover max-w-full h-auto max-h-48 mb-1"
+                />
+              )}
               <HStack gap={3} vAlign="center">
-                <Icon icon={msg.mimeType.startsWith('image/') ? PhotoIcon : DocumentTextIcon} size="lg" color="accent" />
+                <Icon icon={isImage ? PhotoIcon : DocumentTextIcon} size="lg" color="accent" />
                 <StackItem size="fill">
                   <VStack gap={0.5}>
                     <Text type="body" weight="medium">
