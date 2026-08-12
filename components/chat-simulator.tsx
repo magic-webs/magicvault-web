@@ -46,13 +46,15 @@ import {
   X,
   ShieldCheck,
   ArrowDown,
-  Plus
+  Plus,
+  Zap,
+  BrainCircuit
 } from "lucide-react";
 import { toast } from "sonner";
 import { PhoneInput, DEFAULT_COUNTRY_CODE, COUNTRY_CODES, toE164 } from './phone-input';
 import { getStoredUser, type AuthUser } from '@/lib/auth-api';
 import { ThemeToggle } from '@/components/theme-provider';
-import { simulateMessage, blobToBase64, SimulateApiError, type SimulateReply, getStoredAiProvider, type AiProvider, AI_PROVIDER_KEY } from '@/lib/simulate-api';
+import { simulateMessage, blobToBase64, SimulateApiError, type SimulateReply, getStoredAiProvider, setStoredAiProvider, type AiProvider, AI_PROVIDER_KEY } from '@/lib/simulate-api';
 import { cn } from "@/lib/utils";
 
 type DeliveryStatus = 'sending' | 'sent' | 'error';
@@ -117,6 +119,7 @@ export function ChatSimulator() {
   const [recordSeconds, setRecordSeconds] = useState(0);
   const [isAiLoading, setIsAiLoading] = useState(false);
   const [lightboxImage, setLightboxImage] = useState<{ src: string; alt: string } | null>(null);
+  // OpenAI is the default — always falls back to 'openai' if localStorage is empty
   const [aiProvider, setAiProvider] = useState<AiProvider>('openai');
 
   const messagesEndRef = useRef<HTMLDivElement | null>(null);
@@ -145,6 +148,7 @@ export function ChatSimulator() {
 
   useEffect(() => {
     setMounted(true);
+    // Restore persisted provider preference — default is always 'openai'
     setAiProvider(getStoredAiProvider());
     const user = getStoredUser();
     if (!user) {
@@ -163,6 +167,12 @@ export function ChatSimulator() {
     window.addEventListener('storage', onStorage);
     return () => window.removeEventListener('storage', onStorage);
   }, [router]);
+
+  function handleSetAiProvider(provider: AiProvider) {
+    setAiProvider(provider);
+    setStoredAiProvider(provider);
+    toast.success(`AI provider switched to ${provider === 'openai' ? 'OpenAI GPT-4o Mini' : 'AI Gateway (DeepSeek)'}`);
+  }
 
   // Restore stored chat history when whatsappNumber changes
   useEffect(() => {
@@ -738,6 +748,37 @@ export function ChatSimulator() {
 
           {/* Quick Header Actions */}
           <div className="flex items-center gap-1 md:gap-2">
+            {/* AI Provider Selector */}
+            <div
+              className="hidden sm:flex items-center gap-0.5 bg-muted/60 border border-border/60 rounded-lg p-0.5 h-8"
+              title="Select AI provider"
+            >
+              <button
+                onClick={() => handleSetAiProvider('openai')}
+                className={`flex items-center gap-1 px-2 py-1 rounded-md text-[11px] font-semibold transition-all duration-200 ${
+                  aiProvider === 'openai'
+                    ? 'bg-background text-foreground shadow-sm border border-border/40'
+                    : 'text-muted-foreground hover:text-foreground'
+                }`}
+                title="Use OpenAI GPT-4o Mini (default)"
+              >
+                <BrainCircuit className="h-3 w-3" />
+                <span>OpenAI</span>
+              </button>
+              <button
+                onClick={() => handleSetAiProvider('gateway')}
+                className={`flex items-center gap-1 px-2 py-1 rounded-md text-[11px] font-semibold transition-all duration-200 ${
+                  aiProvider === 'gateway'
+                    ? 'bg-background text-foreground shadow-sm border border-border/40'
+                    : 'text-muted-foreground hover:text-foreground'
+                }`}
+                title="Use AI Gateway (DeepSeek)"
+              >
+                <Zap className={`h-3 w-3 ${aiProvider === 'gateway' ? 'text-amber-500' : ''}`} />
+                <span>Gateway</span>
+              </button>
+            </div>
+
             <ThemeToggle className="h-8 w-8" />
             <Button
               variant="ghost"

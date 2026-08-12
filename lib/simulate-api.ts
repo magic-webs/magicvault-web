@@ -49,9 +49,17 @@ export function blobToBase64(blob: Blob): Promise<string> {
 /** localStorage key for persisting AI provider preference */
 export const AI_PROVIDER_KEY = 'mv_ai_provider'
 
+/**
+ * Returns the persisted AI provider preference.
+ * OpenAI ('openai') is ALWAYS the default — the gateway is only used when the
+ * user has explicitly selected it and it has been saved to localStorage.
+ */
 export function getStoredAiProvider(): AiProvider {
   if (typeof window === 'undefined') return 'openai'
-  return (localStorage.getItem(AI_PROVIDER_KEY) as AiProvider) ?? 'openai'
+  const stored = localStorage.getItem(AI_PROVIDER_KEY)
+  // Only accept known values; anything else falls back to openai
+  if (stored === 'gateway') return 'gateway'
+  return 'openai'
 }
 
 export function setStoredAiProvider(provider: AiProvider) {

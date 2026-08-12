@@ -5,7 +5,7 @@ import { v } from "convex/values";
 import { api, internal } from "./_generated/api";
 import { createOpenAI } from "@ai-sdk/openai";
 import { createGateway } from "@ai-sdk/gateway";
-import { generateText, Output, embed } from "ai";
+import { generateText, embed, tool, isStepCount } from "ai";
 import { z } from "zod";
 
 
@@ -62,19 +62,23 @@ export const simulate = action({
       throw new Error("Missing OPENAI_API_KEY environment variable.");
     }
 
-    const gatewayApiKey = process.env.AI_GATEWAY_API_KEY;
-    if (!gatewayApiKey) {
-      throw new Error("Missing AI_GATEWAY_API_KEY environment variable.");
-    }
+    // Default to OpenAI — only use gateway when explicitly requested
+    const useGateway = args.aiProvider === "gateway";
 
     const openai = createOpenAI({ apiKey: openaiApiKey });
-    const aiGateway = createGateway({ apiKey: gatewayApiKey });
 
-    // Select model based on user's preference (default: OpenAI gpt-4o-mini)
-    const useGateway = args.aiProvider === "gateway";
-    const chatModel = useGateway
-      ? aiGateway("deepseek/deepseek-v4-flash")
-      : openai("gpt-4o-mini");
+    let chatModel: any;
+    if (useGateway) {
+      const gatewayApiKey = process.env.AI_GATEWAY_API_KEY;
+      if (!gatewayApiKey) {
+        throw new Error("Missing AI_GATEWAY_API_KEY environment variable.");
+      }
+      const aiGateway = createGateway({ apiKey: gatewayApiKey });
+      chatModel = aiGateway("deepseek/deepseek-v4-flash");
+    } else {
+      // OpenAI is the default
+      chatModel = openai("gpt-4o-mini");
+    }
 
     // 1. Identify user
     const user = await ctx.runQuery(internal.chat_db.getUserByPhone, {
@@ -113,12 +117,6 @@ export const simulate = action({
         r2Key: uploadResult.r2Key,
       });
 
-      // Bypassing mutation token check in background action by running internally
-      // Wait, let's make sure creating document is bypassable or we pass user context!
-      // Ah, the mutation api.documents.createDocument checks for token. But inside the simulation, we already know the user!
-      // Let's create an internalMutation or change createDocument to take userId when run internally, or we can just bypass it.
-      // Wait! Let's write an internalMutation in documents.ts called `createDocumentInternal` so we don't need a token check!
-      // This is much cleaner. We will add `createDocumentInternal` in documents.ts or execute it here.
       // Run the ingestion task synchronously
       const ingestResult = await ctx.runAction(internal.ingest.processDocument, {
         documentId: docId,
@@ -178,11 +176,10 @@ export const simulate = action({
       };
     }
 
-    // 4. Vector Search (RAG) & Document Catalog & Chat History
+    // 4. Build context: documents catalog, recent chat history, and vector search
     let contextText = "";
     let matchedDocs: Array<{ id: string; filename: string; mimeType: string; summary: string; r2Key: string }> = [];
     let allDocs: any[] = [];
-    let recentHistory = "";
 
     // 4.1 Fetch user's entire document catalog
     try {
@@ -191,42 +188,46 @@ export const simulate = action({
       console.error("Failed to load user documents catalog", err);
     }
 
-    // 4.2 Fetch chat history for conversational context
+    // 4.2 Fetch recent chat history as a proper message array for multi-turn context
+    type HistoryMessage = { role: "user" | "assistant"; content: string };
+    const historyMessages: HistoryMessage[] = [];
     try {
-      const history = await ctx.runQuery(api.messages.listMessages, { whatsappNumber: args.whatsappNumber });
-      // Filter out the active user message we are currently processing if it exists at the end of history
-      let previousMessages = history;
-      if (previousMessages.length > 0) {
-        const lastMsg = previousMessages[previousMessages.length - 1];
-        if (lastMsg.sender === "user") {
-          previousMessages = previousMessages.slice(0, -1);
-        }
-      }
-      previousMessages = previousMessages.slice(-10);
+      const recentMsgs = await ctx.runQuery(internal.chat_db.getRecentMessages, {
+        userId: user._id,
+        limit: 20, // last 20 messages = up to 10 back-and-forth turns
+      });
 
-      recentHistory = previousMessages
-        .map((m) => {
-          let text = m.text || `[${m.kind} message: ${m.filename || ""}]`;
-          // Sanitize JSON payloads from structured responses so the LLM can read them
-          if (text.trim().startsWith('{') && text.trim().endsWith('}')) {
-            try {
-              const parsed = JSON.parse(text);
-              if (parsed.type === 'structured_details') {
-                const fields = (parsed.fields || []).map((f: any) => `${f.key}: ${f.value}`).join(', ');
-                text = `[Shared document details - ${parsed.title || 'Document'}: ${fields}]`;
-              } else if (parsed.type === 'document_analysis') {
-                text = `[Document saved as "${parsed.filename}" in category "${parsed.category}"]`;
-              }
-            } catch { /* leave as-is */ }
-          }
-          return `${m.sender === "user" ? "User" : "Assistant"}: ${text}`;
-        })
-        .join("\n");
+      // Exclude the very last user message if it matches the current query text
+      // to avoid the LLM seeing the same message twice in context
+      const msgsToInclude = recentMsgs.filter((m) => {
+        if (m.sender === "user" && m.text === queryText) return false;
+        return true;
+      });
+
+      for (const m of msgsToInclude) {
+        const role: "user" | "assistant" = m.sender === "user" ? "user" : "assistant";
+        let content = m.text || `[${m.kind} message${m.filename ? `: ${m.filename}` : ""}]`;
+
+        // Humanize structured JSON payloads stored in the DB so the LLM reads them naturally
+        if (content.trim().startsWith("{") && content.trim().endsWith("}")) {
+          try {
+            const parsed = JSON.parse(content);
+            if (parsed.type === "structured_details") {
+              const fields = (parsed.fields || []).map((f: any) => `${f.key}: ${f.value}`).join(", ");
+              content = `[Shared document details — ${parsed.title || "Document"}: ${fields}]`;
+            } else if (parsed.type === "document_analysis") {
+              content = `[Document saved: "${parsed.filename}" in category "${parsed.category}". Summary: ${parsed.summary}]`;
+            }
+          } catch { /* leave as-is */ }
+        }
+
+        historyMessages.push({ role, content });
+      }
     } catch (err) {
       console.error("Failed to load chat history", err);
     }
 
-    // 4.3 Vector search for matches
+    // 4.3 Vector search for semantically relevant document chunks
     try {
       const { embedding } = await embed({
         model: openai.embedding("text-embedding-3-small"),
@@ -244,7 +245,7 @@ export const simulate = action({
         const results: any[] = await ctx.runQuery(internal.chat_db.getChunksWithDocs, { chunkIds });
         contextText = results.map((r: any) => `[Document: ${r.filename} (ID: ${r.documentId})]\n${r.text}`).join("\n\n---\n\n");
 
-        // Unique documents
+        // Collect unique matched documents
         const seen = new Set();
         for (const r of results) {
           if (!seen.has(r.documentId)) {
@@ -263,105 +264,170 @@ export const simulate = action({
       console.error("Vector search or embedding error", err);
     }
 
-    // 5. Ask model with Vercel AI SDK
-    const matchedDocumentsPromptContext = matchedDocs
-      .map((d) => `- Document ID: "${d.id}", Filename: "${d.filename}"`)
-      .join("\n");
-
+    // 5. Build system prompt context strings
     const allDocumentsContext = allDocs
       .map((d) => `- Document ID: "${d._id}", Filename: "${d.filename}", Category: "${d.category}", Summary: "${d.summary}"`)
       .join("\n");
 
+    const matchedDocumentsContext = matchedDocs
+      .map((d) => `- Document ID: "${d.id}", Filename: "${d.filename}"`)
+      .join("\n");
+
     const systemPrompt = `You are Magic Vault, a highly advanced personal document assistant.
 You help users retrieve and remember information from the documents they uploaded.
-When answering, you MUST use the provided context from the user's vault documents if it is relevant.
-If the context contains the answer, answer concisely and accurately based on it.
-If the context does not contain the answer, answer based on your general knowledge but politely remind the user that this info was not found in their vault.
-Refer to specific document titles or tags if you know them.
 
-Conversational Memory (Recent History):
-${recentHistory || "No previous conversation history."}
+RULES:
+- When answering, use the provided context from the user's vault documents if relevant.
+- If context contains the answer, be concise and accurate.
+- If not found in the vault, answer from general knowledge but note the info wasn't in their vault.
+- Refer to specific document titles when you know them.
+- For affirmative replies ("yes", "ok", "sure", "yeah", "please", "go ahead"): check the conversation history — if the previous assistant message offered to share/send a document, call attachDocument with that document's ID.
+- If the user asks for a document type but multiple matches exist for different people, ask for clarification instead of guessing.
 
 All Documents in User's Vault:
 ${allDocumentsContext || "No documents available in user's vault."}
 
-Context from matched document chunks:
-${contextText || "No matching content context found."}
+Context from semantically matched document chunks:
+${contextText || "No matching content found."}
 
-Matched Search Documents:
-${matchedDocumentsPromptContext || "No matching search documents."}
+Matched Documents (most relevant to the query):
+${matchedDocumentsContext || "None."}`;
 
-User Question: "${queryText}"
+    // 6. Define AI SDK v7 tools for each distinct action
+    // Note: AI SDK v7 uses `inputSchema` (not `parameters`) for tool definitions
 
-Instructions:
-1. Generate a clear, concise, conversational text reply. Be friendly and helpful.
-2. Check if the user is explicitly asking to retrieve, view, download, or get the file/document itself (e.g. "give me the invoice", "download my passport", "show me the PDF file", "send me the file").
-   - If they are, and you can identify the exact matching Document ID from the vault documents, set "shouldAttachDocumentId" to that Document ID.
-   - If they are only asking for information, text details, numbers, or facts extracted FROM a document (e.g., "what is my passport number?", "tell me my date of birth from my Aadhaar card", "what details do you have in my PAN card?"), do NOT attach the document file (set "shouldAttachDocumentId" to null). Only answer their question using the context.
-   - Set "shouldAttachDocumentId" to the Document ID ONLY when they explicitly want to view, download, or receive the file attachment itself.
-   - Otherwise, set "shouldAttachDocumentId" to null.
-3. If the user asks for a document type (e.g. "Aadhaar card", "PAN card") but there are multiple documents of that type matching different individuals' names (e.g. "abhijit-pradhan-adhar" and "john-doe-adhar"), and the user hasn't specified whose document they want:
-   - Do NOT attach any document yet (set "shouldAttachDocumentId" to null).
-   - In your textReply, politely list the names/filenames of the available matching documents and ask the user to clarify whose document they are looking for.
-4. Keep the conversation context-aware. If the user clarifies their choice from the previous message (e.g., they said "Abhijit's" in response to your list of options), refer to the history to identify the correct document, and attach it.
-5. IMPORTANT - Affirmative confirmation pattern: If the user sends a short affirmative reply ("yes", "ok", "sure", "yeah", "yep", "please", "go ahead") AND the previous assistant message (from Conversational Memory) offered to show, send, or share a document, treat this as an explicit request to retrieve and attach that specific document. Set "shouldAttachDocumentId" to the Document ID of the document that was offered in the last assistant turn. Look at the Conversational Memory to identify which document was last mentioned by the assistant.`;
-
-
-    const { output: chatResult } = await generateText({
-      model: chatModel,
-      output: Output.object({
-        schema: z.object({
-          textReply: z.string().describe("Conversational fallback text reply (if user asks a general question, or for error/clarification messages)."),
-          shouldAttachDocumentId: z.string().nullable().describe("ID of document user is asking to download or get, otherwise null."),
-          structuredDetails: z.object({
-            title: z.string().describe("A title for the details, e.g. 'PAN Card Details'"),
-            intro: z.string().describe("Introductory text, e.g. 'Here is the data found in your PAN card:'"),
-            fields: z.array(z.object({
-              key: z.string().describe("Name of the field, e.g. 'PAN Number', 'Name'"),
-              value: z.string().describe("Value of the field"),
-            })).describe("List of fields extracted from the document"),
-            outro: z.string().describe("Concluding text, e.g. 'If you need anything else, just let me know!'"),
-          }).nullable().describe("Use this only if the user is asking for specific information, details, or a summary of fields inside a document. Otherwise set to null."),
-        }),
+    // Tool: return structured key-value document details to the user
+    const getDocumentDetailsTool = tool({
+      description: "Use this tool when the user asks for specific information, fields, or details extracted FROM a document (e.g. 'what is my passport number?', 'tell me my PAN card details'). Returns a structured card with labeled fields.",
+      inputSchema: z.object({
+        title: z.string().describe("Card title, e.g. 'PAN Card Details'"),
+        intro: z.string().describe("Introductory sentence, e.g. 'Here is the info from your PAN card:'"),
+        fields: z.array(z.object({
+          key: z.string().describe("Field label, e.g. 'PAN Number'"),
+          value: z.string().describe("Field value"),
+        })).describe("List of extracted fields"),
+        outro: z.string().describe("Closing sentence, e.g. 'Let me know if you need anything else!'"),
       }),
-      system: "You are Magic Vault, a helpful document assistant.",
-      prompt: systemPrompt,
+      execute: async (input: {
+        title: string;
+        intro: string;
+        fields: Array<{ key: string; value: string }>;
+        outro: string;
+      }) => input,
     });
 
-    const replyText = chatResult.structuredDetails
-      ? JSON.stringify({ type: "structured_details", ...chatResult.structuredDetails })
-      : chatResult.textReply;
+    // Tool: attach/send a document file to the user
+    const attachDocumentTool = tool({
+      description: "Use this tool ONLY when the user explicitly wants to receive, download, view, or get the actual file/document (e.g. 'give me my invoice', 'download my passport', 'send me the PDF'). Do NOT use this for information-only questions. Set documentId to the exact Document ID from the vault.",
+      inputSchema: z.object({
+        documentId: z.string().describe("The exact Document ID from the vault to attach"),
+        textReply: z.string().describe("A short message to send alongside the document, e.g. 'Here is your passport!'"),
+      }),
+      execute: async (input: { documentId: string; textReply: string }) => input,
+    });
+
+    // 7. Build message list for the LLM: history + current query
+    const messages: Array<{ role: "user" | "assistant"; content: string }> = [
+      ...historyMessages,
+      { role: "user", content: queryText },
+    ];
+
+    // 8. Call the LLM with tools (AI SDK v7)
+    // stopWhen replaces maxSteps — allow up to 3 steps (tool call + final text)
+    const result = await generateText({
+      model: chatModel,
+      system: systemPrompt,
+      messages,
+      tools: {
+        getDocumentDetails: getDocumentDetailsTool,
+        attachDocument: attachDocumentTool,
+      },
+      toolChoice: "auto",
+      stopWhen: isStepCount(3),
+    });
+
+    // 9. Process tool call results into reply messages
     const replies: any[] = [];
 
-    // If user asked for the document, generate a signed download link and attach it
-    if (chatResult.shouldAttachDocumentId) {
-      const docToAttach = matchedDocs.find((d) => d.id === chatResult.shouldAttachDocumentId) ||
-        allDocs.find((d) => d._id === chatResult.shouldAttachDocumentId);
-      if (docToAttach) {
-        try {
-          const downloadUrl = await ctx.runAction(api.r2.getDownloadUrl, {
-            r2Key: docToAttach.r2Key,
-            filename: docToAttach.filename,
-          });
+    // Collect tool calls from all steps
+    for (const step of result.steps) {
+      for (const toolCall of (step.toolCalls ?? [])) {
+        if (toolCall.toolName === "getDocumentDetails") {
+          const details = (toolCall as any).input as {
+            title: string;
+            intro: string;
+            fields: Array<{ key: string; value: string }>;
+            outro: string;
+          };
+          // Emit as structured_details JSON (matches existing frontend renderer)
           replies.push({
-            type: "document",
-            filename: docToAttach.filename,
-            mimeType: docToAttach.mimeType,
-            caption: "",
-            downloadUrl,
+            type: "text",
+            text: JSON.stringify({ type: "structured_details", ...details }),
           });
-        } catch (err) {
-          console.error("Failed to generate download link for simulation reply", err);
+        } else if (toolCall.toolName === "attachDocument") {
+          const { documentId, textReply: attachText } = (toolCall as any).input as {
+            documentId: string;
+            textReply: string;
+          };
+
+          // Find the document in matched or all docs
+          const docToAttach =
+            matchedDocs.find((d) => d.id === documentId) ||
+            allDocs.find((d) => d._id === documentId);
+
+          if (docToAttach) {
+            try {
+              const downloadUrl = await ctx.runAction(api.r2.getDownloadUrl, {
+                r2Key: docToAttach.r2Key,
+                filename: docToAttach.filename,
+              });
+
+              // Add text message before the document card
+              if (attachText?.trim()) {
+                replies.push({ type: "text", text: attachText });
+              }
+
+              replies.push({
+                type: "document",
+                filename: docToAttach.filename,
+                mimeType: docToAttach.mimeType,
+                caption: "",
+                downloadUrl,
+              });
+            } catch (err) {
+              console.error("Failed to generate download link", err);
+              replies.push({
+                type: "text",
+                text: `I found the document "${docToAttach.filename}" but couldn't generate a download link. Please try again.`,
+              });
+            }
+          } else {
+            replies.push({
+              type: "text",
+              text: `I couldn't find a document with ID "${documentId}" in your vault. Please check your documents.`,
+            });
+          }
         }
       }
     }
 
-    // Always include the text reply if it has content
-    if (replyText && replyText.trim()) {
-      replies.unshift({ type: "text", text: replyText });
+    // 10. Include the model's plain text response (free text between/after tool calls)
+    const textReply = result.text?.trim();
+
+    // Add text reply only if:
+    // - there is actual text content AND
+    // - no getDocumentDetails tool was called (since that already covers the text response)
+    const hasStructuredToolReply = replies.some(
+      (r) => r.type === "text" && typeof r.text === "string" && r.text.startsWith('{"type":"structured_details"')
+    );
+    if (textReply && !hasStructuredToolReply) {
+      replies.unshift({ type: "text", text: textReply });
     }
 
-
+    // Fallback: if no reply was produced at all, give a generic response
+    if (replies.length === 0) {
+      replies.push({ type: "text", text: "I'm not sure how to help with that. Could you rephrase your question?" });
+    }
 
     return {
       inbound: {

@@ -1,6 +1,25 @@
 import { v } from "convex/values";
 import { internalQuery } from "./_generated/server";
 
+export const getRecentMessages = internalQuery({
+  args: {
+    userId: v.id("users"),
+    limit: v.optional(v.number()),
+  },
+  handler: async (ctx, args) => {
+    const limit = args.limit ?? 20;
+    // Fetch all messages for the user and take the last `limit` by timestamp
+    const allMessages = await ctx.db
+      .query("messages")
+      .withIndex("by_user", (q) => q.eq("userId", args.userId))
+      .collect();
+
+    // Sort ascending by timestamp then take the last `limit`
+    const sorted = allMessages.sort((a, b) => a.timestamp - b.timestamp);
+    return sorted.slice(-limit);
+  },
+});
+
 export const getUserByPhone = internalQuery({
   args: {
     whatsappNumber: v.string(),
