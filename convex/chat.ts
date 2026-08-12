@@ -118,7 +118,12 @@ export const simulate = action({
       });
 
       const replyText = ingestResult.success
-        ? `🤖 Document Analysis Complete!\n\nI have successfully processed and saved your document as:\n📁 *${ingestResult.filename}*\n\n*Category:* ${ingestResult.category}\n*Summary:* ${ingestResult.summary}`
+        ? JSON.stringify({
+            type: "document_analysis",
+            filename: ingestResult.filename,
+            category: ingestResult.category,
+            summary: ingestResult.summary,
+          })
         : `⚠️ Document Ingestion Failed\n\nI was unable to process the uploaded file "${filename}".\n*Reason:* ${ingestResult.error}`;
 
       return {
@@ -175,9 +180,24 @@ export const simulate = action({
       const history = await ctx.runQuery(api.messages.listMessages, { whatsappNumber: args.whatsappNumber });
       // The last message in history is the user's message we are currently processing (since it's inserted before calling simulate).
       // We format the 8 messages BEFORE that to give the assistant conversational memory/context.
-      const previousMessages = history.slice(0, -1).slice(-8);
+      const previousMessages = history.slice(0, -1).slice(-10);
       recentHistory = previousMessages
-        .map((m) => `${m.sender === "user" ? "User" : "Assistant"}: ${m.text || `[${m.kind} message: ${m.filename || ""}]`}`)
+        .map((m) => {
+          let text = m.text || `[${m.kind} message: ${m.filename || ""}]`;
+          // Sanitize JSON payloads from structured responses so the LLM can read them
+          if (text.trim().startsWith('{') && text.trim().endsWith('}')) {
+            try {
+              const parsed = JSON.parse(text);
+              if (parsed.type === 'structured_details') {
+                const fields = (parsed.fields || []).map((f: any) => `${f.key}: ${f.value}`).join(', ');
+                text = `[Shared document details - ${parsed.title || 'Document'}: ${fields}]`;
+              } else if (parsed.type === 'document_analysis') {
+                text = `[Document saved as "${parsed.filename}" in category "${parsed.category}"]`;
+              }
+            } catch { /* leave as-is */ }
+          }
+          return `${m.sender === "user" ? "User" : "Assistant"}: ${text}`;
+        })
         .join("\n");
     } catch (err) {
       console.error("Failed to load chat history", err);
@@ -252,27 +272,42 @@ User Question: "${queryText}"
 
 Instructions:
 1. Generate a clear, concise, conversational text reply. Be friendly and helpful.
-2. Check if the user is asking to retrieve, view, download, or send a specific document or file.
+2. Check if the user is explicitly asking to retrieve, view, download, or get the file/document itself (e.g. "give me the invoice", "download my passport", "show me the PDF file", "send me the file").
    - If they are, and you can identify the exact matching Document ID from the vault documents, set "shouldAttachDocumentId" to that Document ID.
+   - If they are only asking for information, text details, numbers, or facts extracted FROM a document (e.g., "what is my passport number?", "tell me my date of birth from my Aadhaar card", "what details do you have in my PAN card?"), do NOT attach the document file (set "shouldAttachDocumentId" to null). Only answer their question using the context.
+   - Set "shouldAttachDocumentId" to the Document ID ONLY when they explicitly want to view, download, or receive the file attachment itself.
    - Otherwise, set "shouldAttachDocumentId" to null.
 3. If the user asks for a document type (e.g. "Aadhaar card", "PAN card") but there are multiple documents of that type matching different individuals' names (e.g. "abhijit-pradhan-adhar" and "john-doe-adhar"), and the user hasn't specified whose document they want:
    - Do NOT attach any document yet (set "shouldAttachDocumentId" to null).
    - In your textReply, politely list the names/filenames of the available matching documents and ask the user to clarify whose document they are looking for.
-4. Keep the conversation context-aware. If the user clarifies their choice from the previous message (e.g., they said "Abhijit's" in response to your list of options), refer to the history to identify the correct document, and attach it.`;
+4. Keep the conversation context-aware. If the user clarifies their choice from the previous message (e.g., they said "Abhijit's" in response to your list of options), refer to the history to identify the correct document, and attach it.
+5. IMPORTANT - Affirmative confirmation pattern: If the user sends a short affirmative reply ("yes", "ok", "sure", "yeah", "yep", "please", "go ahead") AND the previous assistant message (from Conversational Memory) offered to show, send, or share a document, treat this as an explicit request to retrieve and attach that specific document. Set "shouldAttachDocumentId" to the Document ID of the document that was offered in the last assistant turn. Look at the Conversational Memory to identify which document was last mentioned by the assistant.`;
+
 
     const { output: chatResult } = await generateText({
       model: openai("gpt-4o-mini"),
       output: Output.object({
         schema: z.object({
-          textReply: z.string().describe("Conversational reply to user's question."),
+          textReply: z.string().describe("Conversational fallback text reply (if user asks a general question, or for error/clarification messages)."),
           shouldAttachDocumentId: z.string().nullable().describe("ID of document user is asking to download or get, otherwise null."),
+          structuredDetails: z.object({
+            title: z.string().describe("A title for the details, e.g. 'PAN Card Details'"),
+            intro: z.string().describe("Introductory text, e.g. 'Here is the data found in your PAN card:'"),
+            fields: z.array(z.object({
+              key: z.string().describe("Name of the field, e.g. 'PAN Number', 'Name'"),
+              value: z.string().describe("Value of the field"),
+            })).describe("List of fields extracted from the document"),
+            outro: z.string().describe("Concluding text, e.g. 'If you need anything else, just let me know!'"),
+          }).nullable().describe("Use this only if the user is asking for specific information, details, or a summary of fields inside a document. Otherwise set to null."),
         }),
       }),
       system: "You are Magic Vault, a helpful document assistant.",
       prompt: systemPrompt,
     });
 
-    const replyText = chatResult.textReply;
+    const replyText = chatResult.structuredDetails 
+      ? JSON.stringify({ type: "structured_details", ...chatResult.structuredDetails })
+      : chatResult.textReply;
     const replies: any[] = [];
 
     // If user asked for the document, generate a signed download link and attach it

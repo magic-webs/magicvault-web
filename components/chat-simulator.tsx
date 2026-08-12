@@ -119,6 +119,7 @@ export function ChatSimulator() {
   const [lightboxImage, setLightboxImage] = useState<{ src: string; alt: string } | null>(null);
 
   const messagesEndRef = useRef<HTMLDivElement | null>(null);
+  const textareaRef = useRef<HTMLTextAreaElement | null>(null);
 
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'auto' });
@@ -132,6 +133,13 @@ export function ChatSimulator() {
     }
   }, [messages]);
 
+  // Auto-resize textarea on composerValue change
+  useEffect(() => {
+    const el = textareaRef.current;
+    if (!el) return;
+    el.style.height = 'auto';
+    el.style.height = Math.min(el.scrollHeight, 120) + 'px';
+  }, [composerValue]);
 
 
   useEffect(() => {
@@ -477,22 +485,167 @@ export function ChatSimulator() {
             )}
 
             {/* Assistant - Text, transcript, or error */}
-            {!isUser && (msg.kind === 'text' || msg.kind === 'transcript' || msg.kind === 'error') && (
-              <div className={`rounded-2xl rounded-tl-none px-4 py-2.5 text-sm shadow-sm break-words self-start ${
-                msg.kind === 'error' ? 'bg-red-500/10 border border-red-500/20 text-red-600 dark:text-red-400' : 'bg-muted text-foreground'
-              }`}>
-                <div className="flex items-start gap-2 justify-between">
-                  <div className="flex-1">
-                    {msg.kind === 'transcript' ? (
-                      <span className="italic text-muted-foreground">🎙️ Transcribed: &ldquo;{msg.text}&rdquo;</span>
-                    ) : (
-                      <span>{msg.text}</span>
-                    )}
-                  </div>
+            {!isUser && (msg.kind === 'text' || msg.kind === 'transcript' || msg.kind === 'error') && (() => {
+              if (msg.kind === 'text') {
+                // 1. Check for JSON structured details from backend
+                const struct = parseStructuredDetails(msg.text);
+                if (struct.isStructured) {
+                  return (
+                    <div className="bg-card border border-border/85 rounded-2xl rounded-tl-none p-4 shadow-sm w-full max-w-[325px] self-start flex flex-col gap-3 animate-fade-in">
+                      <div className="flex items-center gap-2 text-emerald-600 dark:text-emerald-400 font-bold text-xs border-b border-border pb-2">
+                        <ShieldCheck className="h-4.5 w-4.5 shrink-0 text-emerald-500" />
+                        <span>{struct.title}</span>
+                      </div>
 
+                      {struct.intro && (
+                        <p className="text-xs text-muted-foreground leading-relaxed">{struct.intro}</p>
+                      )}
+
+                      <div className="grid grid-cols-1 gap-2 bg-muted/20 p-3 rounded-xl border border-border/40">
+                        {struct.fields.map((pair: { key: string; value: string }, idx: number) => {
+                          const cleanKey = pair.key.replace(/\*\*/g, '').trim();
+                          const cleanValue = pair.value.replace(/\*\*/g, '').trim();
+                          return (
+                            <div key={idx} className="flex flex-col gap-0.5 border-b border-border/20 last:border-0 pb-1.5 last:pb-0">
+                              <span className="text-[9px] text-muted-foreground uppercase font-bold tracking-wider">{cleanKey}</span>
+                              <span className="text-xs font-semibold text-foreground break-all">{cleanValue}</span>
+                            </div>
+                          );
+                        })}
+                      </div>
+
+                      {struct.outro && (
+                        <p className="text-xs text-muted-foreground leading-relaxed border-t border-border/30 pt-2">{struct.outro}</p>
+                      )}
+                    </div>
+                  );
+                }
+
+                // 2. Check for JSON document analysis from backend
+                const analysis = parseDocumentAnalysis(msg.text);
+                if (analysis.isAnalysis) {
+                  return (
+                    <div className="bg-card border border-border/85 rounded-2xl rounded-tl-none p-4 shadow-sm w-full max-w-[325px] self-start flex flex-col gap-3 animate-fade-in">
+                      <div className="flex items-center gap-2 text-emerald-600 dark:text-emerald-400 font-bold text-xs border-b border-border pb-2">
+                        <Sparkles className="h-4 w-4 shrink-0 animate-pulse" />
+                        <span>Document Analysis Complete</span>
+                      </div>
+                      
+                      {analysis.filename && (
+                        <div className="flex flex-col gap-1">
+                          <span className="text-[9px] text-muted-foreground uppercase font-bold tracking-wider">File Name</span>
+                          <div className="flex items-center gap-1.5 bg-muted/40 px-2 py-1.5 rounded-lg border border-border/30">
+                            <FileText className="h-4 w-4 shrink-0 text-emerald-500" />
+                            <span className="text-xs font-semibold text-foreground truncate">{analysis.filename}</span>
+                          </div>
+                        </div>
+                      )}
+
+                      {analysis.category && (
+                        <div className="flex flex-col gap-1">
+                          <span className="text-[9px] text-muted-foreground uppercase font-bold tracking-wider">Category</span>
+                          <span className="text-xs font-bold text-emerald-600 dark:text-emerald-400 px-2.5 py-1 bg-emerald-500/10 rounded-md w-fit">{analysis.category}</span>
+                        </div>
+                      )}
+
+                      {analysis.summary && (
+                        <div className="flex flex-col gap-1">
+                          <span className="text-[9px] text-muted-foreground uppercase font-bold tracking-wider">Analysis Summary</span>
+                          <p className="text-xs text-muted-foreground leading-relaxed bg-muted/20 p-2.5 rounded-lg border border-border/20">{analysis.summary}</p>
+                        </div>
+                      )}
+                    </div>
+                  );
+                }
+
+                // 3. Fallback to legacy markdown parsing for older message history
+                if (msg.text.startsWith('🤖 Document Analysis Complete!')) {
+                  const legacyAnalysis = parseAnalysisText(msg.text);
+                  return (
+                    <div className="bg-card border border-border/85 rounded-2xl rounded-tl-none p-4 shadow-sm w-full max-w-[325px] self-start flex flex-col gap-3 animate-fade-in">
+                      <div className="flex items-center gap-2 text-emerald-600 dark:text-emerald-400 font-bold text-xs border-b border-border pb-2">
+                        <Sparkles className="h-4 w-4 shrink-0 animate-pulse" />
+                        <span>Document Analysis Complete</span>
+                      </div>
+                      
+                      {legacyAnalysis.filename && (
+                        <div className="flex flex-col gap-1">
+                          <span className="text-[9px] text-muted-foreground uppercase font-bold tracking-wider">File Name</span>
+                          <div className="flex items-center gap-1.5 bg-muted/40 px-2 py-1.5 rounded-lg border border-border/30">
+                            <FileText className="h-4 w-4 shrink-0 text-emerald-500" />
+                            <span className="text-xs font-semibold text-foreground truncate">{legacyAnalysis.filename}</span>
+                          </div>
+                        </div>
+                      )}
+
+                      {legacyAnalysis.category && (
+                        <div className="flex flex-col gap-1">
+                          <span className="text-[9px] text-muted-foreground uppercase font-bold tracking-wider">Category</span>
+                          <span className="text-xs font-bold text-emerald-600 dark:text-emerald-400 px-2.5 py-1 bg-emerald-500/10 rounded-md w-fit">{legacyAnalysis.category}</span>
+                        </div>
+                      )}
+
+                      {legacyAnalysis.summary && (
+                        <div className="flex flex-col gap-1">
+                          <span className="text-[9px] text-muted-foreground uppercase font-bold tracking-wider">Analysis Summary</span>
+                          <p className="text-xs text-muted-foreground leading-relaxed bg-muted/20 p-2.5 rounded-lg border border-border/20">{legacyAnalysis.summary}</p>
+                        </div>
+                      )}
+                    </div>
+                  );
+                }
+
+                const legacyDetails = parseDocumentDetails(msg.text);
+                if (legacyDetails.isDetails) {
+                  return (
+                    <div className="bg-card border border-border/85 rounded-2xl rounded-tl-none p-4 shadow-sm w-full max-w-[325px] self-start flex flex-col gap-3 animate-fade-in">
+                      <div className="flex items-center gap-2 text-emerald-600 dark:text-emerald-400 font-bold text-xs border-b border-border pb-2">
+                        <ShieldCheck className="h-4.5 w-4.5 shrink-0 text-emerald-500" />
+                        <span>{legacyDetails.headerTitle}</span>
+                      </div>
+
+                      {legacyDetails.introText && (
+                        <p className="text-xs text-muted-foreground leading-relaxed">{legacyDetails.introText}</p>
+                      )}
+
+                      <div className="grid grid-cols-1 gap-2 bg-muted/20 p-3 rounded-xl border border-border/40">
+                        {legacyDetails.kvPairs.map((pair, idx) => {
+                          const cleanKey = pair.key.replace(/\*\*/g, '').trim();
+                          const cleanValue = pair.value.replace(/\*\*/g, '').trim();
+                          return (
+                            <div key={idx} className="flex flex-col gap-0.5 border-b border-border/20 last:border-0 pb-1.5 last:pb-0">
+                              <span className="text-[9px] text-muted-foreground uppercase font-bold tracking-wider">{cleanKey}</span>
+                              <span className="text-xs font-semibold text-foreground break-all">{cleanValue}</span>
+                            </div>
+                          );
+                        })}
+                      </div>
+
+                      {legacyDetails.outroText && (
+                        <p className="text-xs text-muted-foreground leading-relaxed border-t border-border/30 pt-2">{legacyDetails.outroText}</p>
+                      )}
+                    </div>
+                  );
+                }
+              }
+
+              // Standard message bubble rendering
+              return (
+                <div className={`rounded-2xl rounded-tl-none px-4 py-2.5 text-sm shadow-sm break-words self-start ${
+                  msg.kind === 'error' ? 'bg-red-500/10 border border-red-500/20 text-red-600 dark:text-red-400' : 'bg-muted text-foreground'
+                }`}>
+                  <div className="flex items-start gap-2 justify-between">
+                    <div className="flex-1">
+                      {msg.kind === 'transcript' ? (
+                        <span className="italic text-muted-foreground">🎙️ Transcribed: &ldquo;{msg.text}&rdquo;</span>
+                      ) : (
+                        <span>{renderMarkdownText(msg.text || '')}</span>
+                      )}
+                    </div>
+                  </div>
                 </div>
-              </div>
-            )}
+              );
+            })()}
 
             {/* Assistant - Document Card */}
             {!isUser && msg.kind === 'document' && (
@@ -660,7 +813,7 @@ export function ChatSimulator() {
 
         {/* Composer / Chat Input Section */}
         <footer className="p-3 md:p-4 border-t border-border bg-card shrink-0">
-          <div className="max-w-3xl mx-auto flex items-center gap-2">
+          <div className="max-w-3xl mx-auto flex items-end gap-2">
             {/* Attachments Trigger */}
             <Button
               variant="ghost"
@@ -687,10 +840,12 @@ export function ChatSimulator() {
                 </div>
               ) : (
                 <textarea
+                  ref={textareaRef}
                   value={composerValue}
                   onChange={(e) => setComposerValue(e.target.value)}
                   placeholder="Type a message..."
-                  className="flex-1 text-sm bg-transparent border-0 focus:outline-none focus:ring-0 resize-none h-6 py-0.5 font-normal placeholder-muted-foreground w-full align-middle leading-tight"
+                  rows={1}
+                  className="flex-1 text-sm bg-transparent border-0 focus:outline-none focus:ring-0 resize-none py-1 font-normal placeholder-muted-foreground w-full leading-tight overflow-y-auto"
                   onKeyDown={(e) => {
                     if (e.key === 'Enter' && !e.shiftKey) {
                       e.preventDefault();
@@ -808,4 +963,150 @@ function LoadingImage({ src, alt, className, onLoadComplete }: { src: string; al
       />
     </div>
   );
+}
+
+function parseAnalysisText(text: string) {
+  const lines = text.split('\n');
+  let filename = '';
+  let category = '';
+  let summary = '';
+
+  const fileLine = lines.find(l => l.includes('📁') || (l.includes('*') && l.includes('.')));
+  if (fileLine) {
+    filename = fileLine.replace(/[📁*]/g, '').trim();
+  }
+
+  const catLine = lines.find(l => l.toLowerCase().includes('*category:*'));
+  if (catLine) {
+    category = catLine.replace(/\*Category:\*/i, '').replace(/\*/g, '').trim();
+  }
+
+  const sumLine = lines.find(l => l.toLowerCase().includes('*summary:*'));
+  if (sumLine) {
+    summary = sumLine.replace(/\*Summary:\*/i, '').replace(/\*/g, '').trim();
+  }
+
+  return { filename, category, summary };
+}
+
+function parseDocumentDetails(text: string) {
+  const lines = text.split('\n');
+  const introLines: string[] = [];
+  const outroLines: string[] = [];
+  const kvPairs: Array<{ key: string; value: string }> = [];
+
+  let headerTitle = "Document Details";
+  let inList = false;
+
+  for (const line of lines) {
+    const trimmed = line.trim();
+    if (trimmed.startsWith('-') || trimmed.startsWith('*')) {
+      const match = trimmed.match(/^[-*]\s*\*\*(.*?):\*\*\s*(.*)$/);
+      if (match) {
+        inList = true;
+        kvPairs.push({
+          key: match[1].trim(),
+          value: match[2].trim()
+        });
+        continue;
+      }
+    }
+
+    if (inList) {
+      if (trimmed) {
+        outroLines.push(trimmed);
+      }
+    } else {
+      if (trimmed) {
+        introLines.push(trimmed);
+      }
+    }
+  }
+
+  const introText = introLines.join(' ');
+  const docTypeMatch = introText.match(/about your\s+(.*?)(?:\s+card)?(?:\:|\.|$)/i);
+  if (docTypeMatch) {
+    headerTitle = `${docTypeMatch[1].trim()} Details`;
+    headerTitle = headerTitle.split(' ').map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(' ');
+    if (introText.toLowerCase().includes('card') && !headerTitle.toLowerCase().includes('card')) {
+      headerTitle = headerTitle.replace('Details', 'Card Details');
+    }
+  }
+
+  return {
+    isDetails: kvPairs.length > 0,
+    headerTitle,
+    introText,
+    kvPairs,
+    outroText: outroLines.join(' ')
+  };
+}
+
+function parseStructuredDetails(text: string) {
+  try {
+    const trimmed = text.trim();
+    if (trimmed.startsWith('{') && trimmed.endsWith('}')) {
+      const parsed = JSON.parse(trimmed);
+      if (parsed && parsed.type === 'structured_details') {
+        return {
+          isStructured: true,
+          title: parsed.title || 'Document Details',
+          intro: parsed.intro || '',
+          fields: Array.isArray(parsed.fields) ? parsed.fields : [],
+          outro: parsed.outro || '',
+        };
+      }
+    }
+  } catch {
+    // ignore
+  }
+  return { isStructured: false };
+}
+
+function parseDocumentAnalysis(text: string) {
+  try {
+    const trimmed = text.trim();
+    if (trimmed.startsWith('{') && trimmed.endsWith('}')) {
+      const parsed = JSON.parse(trimmed);
+      if (parsed && parsed.type === 'document_analysis') {
+        return {
+          isAnalysis: true,
+          filename: parsed.filename || '',
+          category: parsed.category || '',
+          summary: parsed.summary || '',
+        };
+      }
+    }
+  } catch {
+    // ignore
+  }
+  return { isAnalysis: false };
+}
+
+function renderMarkdownText(text: string): React.ReactNode {
+  // Split text into segments, handling **bold** and *italic*
+  const parts: React.ReactNode[] = [];
+  const regex = /\*\*(.*?)\*\*|\*(.*?)\*/g;
+  let lastIndex = 0;
+  let match;
+
+  while ((match = regex.exec(text)) !== null) {
+    if (match.index > lastIndex) {
+      parts.push(text.slice(lastIndex, match.index));
+    }
+    if (match[1] !== undefined) {
+      // **bold**
+      parts.push(<strong key={match.index} className="font-semibold">{match[1]}</strong>);
+    } else if (match[2] !== undefined) {
+      // *italic*
+      parts.push(<em key={match.index} className="italic">{match[2]}</em>);
+    }
+    lastIndex = regex.lastIndex;
+  }
+
+  if (lastIndex < text.length) {
+    parts.push(text.slice(lastIndex));
+  }
+
+  return <>{parts}</>;
 }
