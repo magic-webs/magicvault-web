@@ -52,7 +52,7 @@ import { toast } from "sonner";
 import { PhoneInput, DEFAULT_COUNTRY_CODE, COUNTRY_CODES, toE164 } from './phone-input';
 import { getStoredUser, type AuthUser } from '@/lib/auth-api';
 import { ThemeToggle } from '@/components/theme-provider';
-import { simulateMessage, blobToBase64, SimulateApiError, type SimulateReply } from '@/lib/simulate-api';
+import { simulateMessage, blobToBase64, SimulateApiError, type SimulateReply, getStoredAiProvider, type AiProvider, AI_PROVIDER_KEY } from '@/lib/simulate-api';
 import { cn } from "@/lib/utils";
 
 type DeliveryStatus = 'sending' | 'sent' | 'error';
@@ -117,6 +117,7 @@ export function ChatSimulator() {
   const [recordSeconds, setRecordSeconds] = useState(0);
   const [isAiLoading, setIsAiLoading] = useState(false);
   const [lightboxImage, setLightboxImage] = useState<{ src: string; alt: string } | null>(null);
+  const [aiProvider, setAiProvider] = useState<AiProvider>('openai');
 
   const messagesEndRef = useRef<HTMLDivElement | null>(null);
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
@@ -144,6 +145,7 @@ export function ChatSimulator() {
 
   useEffect(() => {
     setMounted(true);
+    setAiProvider(getStoredAiProvider());
     const user = getStoredUser();
     if (!user) {
       router.push('/login');
@@ -151,6 +153,15 @@ export function ChatSimulator() {
     }
     setCurrentUser(user);
     setWhatsappNumber(user.whatsappNumber);
+
+    // Sync AI provider from localStorage across tabs
+    const onStorage = (e: StorageEvent) => {
+      if (e.key === AI_PROVIDER_KEY) {
+        setAiProvider(getStoredAiProvider());
+      }
+    };
+    window.addEventListener('storage', onStorage);
+    return () => window.removeEventListener('storage', onStorage);
   }, [router]);
 
   // Restore stored chat history when whatsappNumber changes
@@ -279,7 +290,7 @@ export function ChatSimulator() {
     setComposerValue('');
     setIsAiLoading(true);
     try {
-      const data = await simulateMessage({ kind: 'text', whatsappNumber, text });
+      const data = await simulateMessage({ kind: 'text', whatsappNumber, text, aiProvider });
       updateStatus(id, 'sent');
       appendReplies(data.replies);
     } catch (error) {
@@ -314,6 +325,7 @@ export function ChatSimulator() {
         kind: 'upload',
         whatsappNumber,
         file: { base64, mimeType: file.type, filename: file.name },
+        aiProvider,
       });
       updateStatus(id, 'sent');
       appendReplies(data.replies);
@@ -344,6 +356,7 @@ export function ChatSimulator() {
         kind: 'voice',
         whatsappNumber,
         audio: { base64, mimeType: blob.type || 'audio/webm' },
+        aiProvider,
       });
       updateStatus(id, 'sent');
       if (data.inbound.transcript) {

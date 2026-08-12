@@ -4,8 +4,10 @@ import { action } from "./_generated/server";
 import { v } from "convex/values";
 import { api, internal } from "./_generated/api";
 import { createOpenAI } from "@ai-sdk/openai";
+import { createGateway } from "@ai-sdk/gateway";
 import { generateText, Output, embed } from "ai";
 import { z } from "zod";
+
 
 async function transcribeAudio(base64Audio: string, mimeType: string, apiKey: string): Promise<string> {
   const buffer = Buffer.from(base64Audio, "base64");
@@ -51,6 +53,8 @@ export const simulate = action({
         filename: v.optional(v.string()),
       })
     ),
+    // Optional AI provider selection: 'openai' (default) or 'gateway'
+    aiProvider: v.optional(v.union(v.literal("openai"), v.literal("gateway"))),
   },
   handler: async (ctx, args): Promise<any> => {
     const openaiApiKey = process.env.OPENAI_API_KEY;
@@ -58,7 +62,19 @@ export const simulate = action({
       throw new Error("Missing OPENAI_API_KEY environment variable.");
     }
 
+    const gatewayApiKey = process.env.AI_GATEWAY_API_KEY;
+    if (!gatewayApiKey) {
+      throw new Error("Missing AI_GATEWAY_API_KEY environment variable.");
+    }
+
     const openai = createOpenAI({ apiKey: openaiApiKey });
+    const aiGateway = createGateway({ apiKey: gatewayApiKey });
+
+    // Select model based on user's preference (default: OpenAI gpt-4o-mini)
+    const useGateway = args.aiProvider === "gateway";
+    const chatModel = useGateway
+      ? aiGateway("deepseek/deepseek-v4-flash")
+      : openai("gpt-4o-mini");
 
     // 1. Identify user
     const user = await ctx.runQuery(internal.chat_db.getUserByPhone, {
@@ -119,11 +135,11 @@ export const simulate = action({
 
       const replyText = ingestResult.success
         ? JSON.stringify({
-            type: "document_analysis",
-            filename: ingestResult.filename,
-            category: ingestResult.category,
-            summary: ingestResult.summary,
-          })
+          type: "document_analysis",
+          filename: ingestResult.filename,
+          category: ingestResult.category,
+          summary: ingestResult.summary,
+        })
         : `⚠️ Document Ingestion Failed\n\nI was unable to process the uploaded file "${filename}".\n*Reason:* ${ingestResult.error}`;
 
       return {
@@ -285,7 +301,7 @@ Instructions:
 
 
     const { output: chatResult } = await generateText({
-      model: openai("gpt-4o-mini"),
+      model: chatModel,
       output: Output.object({
         schema: z.object({
           textReply: z.string().describe("Conversational fallback text reply (if user asks a general question, or for error/clarification messages)."),
@@ -305,7 +321,7 @@ Instructions:
       prompt: systemPrompt,
     });
 
-    const replyText = chatResult.structuredDetails 
+    const replyText = chatResult.structuredDetails
       ? JSON.stringify({ type: "structured_details", ...chatResult.structuredDetails })
       : chatResult.textReply;
     const replies: any[] = [];
@@ -313,7 +329,7 @@ Instructions:
     // If user asked for the document, generate a signed download link and attach it
     if (chatResult.shouldAttachDocumentId) {
       const docToAttach = matchedDocs.find((d) => d.id === chatResult.shouldAttachDocumentId) ||
-                          allDocs.find((d) => d._id === chatResult.shouldAttachDocumentId);
+        allDocs.find((d) => d._id === chatResult.shouldAttachDocumentId);
       if (docToAttach) {
         try {
           const downloadUrl = await ctx.runAction(api.r2.getDownloadUrl, {

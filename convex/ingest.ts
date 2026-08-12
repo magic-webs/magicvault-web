@@ -4,6 +4,7 @@ import { internalAction } from "./_generated/server";
 import { v } from "convex/values";
 import { api, internal } from "./_generated/api";
 import { createOpenAI } from "@ai-sdk/openai";
+import { createGateway } from "@ai-sdk/gateway";
 import { generateText, Output, embedMany } from "ai";
 import { z } from "zod";
 import { S3Client, GetObjectCommand } from "@aws-sdk/client-s3";
@@ -65,7 +66,15 @@ export const processDocument = internalAction({
       throw new Error("Missing OPENAI_API_KEY environment variable.");
     }
 
+    const gatewayApiKey = process.env.AI_GATEWAY_API_KEY;
+    if (!gatewayApiKey) {
+      throw new Error("Missing AI_GATEWAY_API_KEY environment variable.");
+    }
+
+    // OpenAI is used only for embeddings (text-embedding-3-small)
     const openai = createOpenAI({ apiKey: openaiApiKey });
+    // Vercel AI Gateway with DeepSeek for OCR + metadata generation
+    const aiGateway = createGateway({ apiKey: gatewayApiKey });
 
     let extractedText = "";
     let isTextExtractable = true;
@@ -80,9 +89,9 @@ export const processDocument = internalAction({
         extractedText = parsed.text || "";
       } else if (args.mimeType.startsWith("image/")) {
         const base64Data = fileBuffer.toString("base64");
-        // Run OCR using OpenAI Multimodal vision
+        // Run OCR using Vercel AI Gateway (deepseek-v4-flash with vision)
         const response = await generateText({
-          model: openai("gpt-4o-mini"),
+          model: aiGateway("deepseek/deepseek-v4-flash"),
           output: Output.object({
             schema: z.object({
               text: z.string().describe("All readable text extracted from the image"),
@@ -116,9 +125,9 @@ export const processDocument = internalAction({
         extractedText = `This is an uploaded document named ${args.filename}. Direct text content is not select-copyable or readable.`;
       }
 
-      // 3. Generate structured details
+      // 3. Generate structured metadata via AI Gateway
       const detailsResponse = await generateText({
-        model: openai("gpt-4o-mini"),
+        model: aiGateway("deepseek/deepseek-v4-flash"),
         output: Output.object({
           schema: z.object({
             title: z.string().describe("A clean title for the document"),
@@ -134,7 +143,7 @@ export const processDocument = internalAction({
 
       const { title, category, summary, tags } = detailsResponse.output;
 
-      // 3. Chunk text and generate embeddings
+      // 4. Chunk text and generate embeddings (OpenAI embeddings)
       const chunks = chunkText(extractedText);
 
       const { embeddings } = await embedMany({
@@ -142,7 +151,7 @@ export const processDocument = internalAction({
         values: chunks,
       });
 
-      // 4. Save chunks
+      // 5. Save chunks
       const chunkRecords = chunks.map((text, idx) => ({
         text,
         embedding: embeddings[idx],
@@ -154,7 +163,7 @@ export const processDocument = internalAction({
         chunks: chunkRecords,
       });
 
-      // 5. Update document details
+      // 6. Update document details
       const extension = args.filename.split(".").pop() || "";
       // Convert to clean lowercase kebab-case (e.g. abhijit-pradhan-adhar)
       const cleanTitle = title.toLowerCase().trim()

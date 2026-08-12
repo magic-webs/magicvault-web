@@ -14,18 +14,59 @@ import {
   Phone,
   ShieldCheck,
   FileText,
-  ArrowLeft,
-  Loader2
+  Loader2,
+  Cpu,
+  Zap,
+  CheckCircle2,
 } from "lucide-react";
 import { getStoredUser, getMe, clearSession, type AuthUser } from '@/lib/auth-api';
 import { ThemeToggle } from '@/components/theme-provider';
+import {
+  type AiProvider,
+  getStoredAiProvider,
+  setStoredAiProvider,
+} from '@/lib/simulate-api';
+import { cn } from '@/lib/utils';
+import { toast } from 'sonner';
+
+const AI_PROVIDERS: {
+  id: AiProvider;
+  label: string;
+  model: string;
+  description: string;
+  badge: string;
+  badgeColor: string;
+  icon: React.ElementType;
+}[] = [
+  {
+    id: 'openai',
+    label: 'OpenAI',
+    model: 'gpt-4o-mini',
+    description: 'Fast, reliable and accurate. Great for most document queries.',
+    badge: 'Default',
+    badgeColor: 'bg-blue-500/10 border-blue-500/20 text-blue-600 dark:text-blue-400',
+    icon: Cpu,
+  },
+  {
+    id: 'gateway',
+    label: 'AI Gateway',
+    model: 'deepseek/deepseek-v4-flash',
+    description: 'DeepSeek V4 Flash via Vercel AI Gateway. Ultra-fast with vision support.',
+    badge: 'Beta',
+    badgeColor: 'bg-purple-500/10 border-purple-500/20 text-purple-600 dark:text-purple-400',
+    icon: Zap,
+  },
+];
 
 export default function ProfilePage() {
   const router = useRouter();
   const [user, setUser] = useState<AuthUser | null>(null);
   const [isLoading, setIsLoading] = useState(true);
+  const [aiProvider, setAiProvider] = useState<AiProvider>('openai');
 
   useEffect(() => {
+    setAiProvider(getStoredAiProvider());
+
     const cached = getStoredUser();
     if (cached) {
       setUser(cached);
@@ -48,6 +89,13 @@ export default function ProfilePage() {
   function handleSignOut() {
     clearSession();
     router.push('/login');
+  }
+
+  function handleProviderChange(provider: AiProvider) {
+    setAiProvider(provider);
+    setStoredAiProvider(provider);
+    const providerInfo = AI_PROVIDERS.find((p) => p.id === provider);
+    toast.success(`Switched to ${providerInfo?.label} — ${providerInfo?.model}`);
   }
 
   // Header Nav template for profile
@@ -169,6 +217,55 @@ export default function ProfilePage() {
                   <p className="text-[10px] text-muted-foreground leading-none">User Account ID</p>
                   <p className="text-xs font-mono text-foreground mt-1 truncate">{user.id}</p>
                 </div>
+              </div>
+            </div>
+
+            <Separator className="bg-border/60" />
+
+            {/* AI Model Selector */}
+            <div className="space-y-3">
+              <h3 className="text-xs font-semibold text-muted-foreground tracking-wider uppercase">
+                AI MODEL
+              </h3>
+              <div className="grid grid-cols-1 gap-2">
+                {AI_PROVIDERS.map((provider) => {
+                  const Icon = provider.icon;
+                  const isSelected = aiProvider === provider.id;
+                  return (
+                    <button
+                      key={provider.id}
+                      onClick={() => handleProviderChange(provider.id)}
+                      className={cn(
+                        'w-full text-left rounded-xl border p-3 transition-all duration-150 flex items-start gap-3',
+                        isSelected
+                          ? 'border-emerald-500/60 bg-emerald-500/5 ring-1 ring-emerald-500/30'
+                          : 'border-border/60 hover:border-border hover:bg-muted/40'
+                      )}
+                    >
+                      <div className={cn(
+                        'h-8 w-8 rounded-lg flex items-center justify-center shrink-0 mt-0.5',
+                        isSelected ? 'bg-emerald-500/15 text-emerald-600 dark:text-emerald-400' : 'bg-muted text-muted-foreground'
+                      )}>
+                        <Icon className="h-4 w-4" />
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center gap-1.5 flex-wrap">
+                          <span className="text-sm font-semibold text-foreground">{provider.label}</span>
+                          <Badge variant="outline" className={cn('text-[9px] px-1.5 py-0 font-semibold h-4', provider.badgeColor)}>
+                            {provider.badge}
+                          </Badge>
+                          {isSelected && (
+                            <Badge variant="outline" className="text-[9px] px-1.5 py-0 font-semibold h-4 bg-emerald-500/10 border-emerald-500/20 text-emerald-600 dark:text-emerald-400 ml-auto">
+                              <CheckCircle2 className="h-2.5 w-2.5 mr-0.5" /> Active
+                            </Badge>
+                          )}
+                        </div>
+                        <p className="text-[10px] font-mono text-muted-foreground mt-0.5">{provider.model}</p>
+                        <p className="text-[10px] text-muted-foreground mt-0.5 leading-relaxed">{provider.description}</p>
+                      </div>
+                    </button>
+                  );
+                })}
               </div>
             </div>
 
