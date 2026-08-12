@@ -788,12 +788,12 @@ export function ChatSimulator() {
                 ) : (
                   <MessageScrollerContent>
                     {messages.map((msg) => (
-                      <MessageScrollerItem key={msg.id} messageId={msg.id} scrollAnchor={msg.sender === 'user'}>
+                      <MessageScrollerItem key={msg.id} messageId={msg.id} scrollAnchor={true}>
                         {renderMessage(msg)}
                       </MessageScrollerItem>
                     ))}
                     {isAiLoading && (
-                      <MessageScrollerItem messageId="ai-loading" scrollAnchor={false}>
+                      <MessageScrollerItem messageId="ai-loading" scrollAnchor={true}>
                         <Message align="start" className="px-2 md:px-4 py-1 animate-fade-in">
                           <MessageAvatar>
                             <Avatar className="size-8">
