@@ -72,9 +72,12 @@ export const updateMessageStatus = mutation({
   args: {
     messageId: v.id("messages"),
     status: v.union(v.literal("sending"), v.literal("sent"), v.literal("error")),
+    downloadUrl: v.optional(v.string()),
+    previewUrl: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
-    await ctx.db.patch(args.messageId, { status: args.status });
+    const { messageId, ...updates } = args;
+    await ctx.db.patch(messageId, updates);
   },
 });
 

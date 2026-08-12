@@ -50,6 +50,7 @@ export default function DocumentsPage() {
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedCategory, setSelectedCategory] = useState<string>('all');
   const [downloadingId, setDownloadingId] = useState<string | null>(null);
+  const [imageUrls, setImageUrls] = useState<Record<string, string>>({});
 
   async function loadDocuments() {
     setIsLoading(true);
@@ -57,6 +58,21 @@ export default function DocumentsPage() {
     try {
       const res = await listDocuments();
       setDocuments(res.items);
+
+      // Fetch download links for images to show previews
+      const imageDocs = res.items.filter(d => d.mimeType?.startsWith('image/'));
+      const urls: Record<string, string> = {};
+      await Promise.all(
+        imageDocs.map(async (doc) => {
+          try {
+            const url = await getDownloadLink(doc.id);
+            urls[doc.id] = url;
+          } catch (err) {
+            console.error(`Failed to load preview for ${doc.filename}`, err);
+          }
+        })
+      );
+      setImageUrls(urls);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Could not load documents');
     } finally {
@@ -250,8 +266,14 @@ export default function DocumentsPage() {
                       <CardContent className="p-4 sm:p-5 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
                         {/* Doc Info Section */}
                         <div className="flex items-start gap-3.5 min-w-0 flex-1">
-                          <div className="h-10 w-10 rounded-lg bg-emerald-500/10 flex items-center justify-center text-emerald-500 shrink-0 mt-0.5">
-                            {isImage ? <ImageIcon className="h-5 w-5" /> : <FileText className="h-5 w-5" />}
+                          <div className="h-10 w-10 rounded-lg bg-emerald-500/10 flex items-center justify-center text-emerald-500 shrink-0 mt-0.5 overflow-hidden">
+                            {isImage && imageUrls[doc.id] ? (
+                              <img src={imageUrls[doc.id]} alt={doc.title || doc.filename} className="h-full w-full object-cover" />
+                            ) : isImage ? (
+                              <ImageIcon className="h-5 w-5" />
+                            ) : (
+                              <FileText className="h-5 w-5" />
+                            )}
                           </div>
                           
                           <div className="min-w-0 space-y-1.5">

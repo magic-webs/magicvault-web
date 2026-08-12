@@ -44,6 +44,8 @@ export async function POST(request: NextRequest) {
       await convexClient.mutation(api.messages.updateMessageStatus, {
         messageId: userMessageId,
         status: "sent",
+        downloadUrl: data.inbound?.downloadUrl,
+        previewUrl: data.inbound?.downloadUrl,
       });
       
       // If voice message transcript was generated, save that as an assistant transcript message

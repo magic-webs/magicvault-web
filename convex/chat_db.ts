@@ -38,3 +38,12 @@ export const getChunksWithDocs = internalQuery({
     return results;
   },
 });
+
+export const getUserById = internalQuery({
+  args: {
+    userId: v.id("users"),
+  },
+  handler: async (ctx, args) => {
+    return await ctx.db.get(args.userId);
+  },
+});

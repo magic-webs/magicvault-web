@@ -4,13 +4,13 @@ import { action } from "./_generated/server";
 import { v } from "convex/values";
 import { api, internal } from "./_generated/api";
 import { createOpenAI } from "@ai-sdk/openai";
-import { generateText, generateObject, embed } from "ai";
+import { generateText, Output, embed } from "ai";
 import { z } from "zod";
 
 async function transcribeAudio(base64Audio: string, mimeType: string, apiKey: string): Promise<string> {
   const buffer = Buffer.from(base64Audio, "base64");
   const formData = new FormData();
-  
+
   const ext = mimeType.split("/")[1]?.split(";")[0] || "webm";
   const blob = new Blob([buffer], { type: mimeType });
   formData.append("file", blob, `audio.${ext}`);
@@ -33,30 +33,6 @@ async function transcribeAudio(base64Audio: string, mimeType: string, apiKey: st
   return result.text;
 }
 
-async function textToSpeech(text: string, apiKey: string): Promise<string> {
-  const response = await fetch("https://api.openai.com/v1/audio/speech", {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${apiKey}`,
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify({
-      model: "tts-1",
-      input: text,
-      voice: "alloy",
-    }),
-  });
-
-  if (!response.ok) {
-    const errorText = await response.text();
-    throw new Error(`TTS generation failed: ${errorText}`);
-  }
-
-  const arrayBuffer = await response.arrayBuffer();
-  const base64Audio = Buffer.from(arrayBuffer).toString("base64");
-  return base64Audio;
-}
-
 export const simulate = action({
   args: {
     kind: v.union(v.literal("text"), v.literal("voice"), v.literal("upload")),
@@ -76,7 +52,7 @@ export const simulate = action({
       })
     ),
   },
-  handler: async (ctx, args) => {
+  handler: async (ctx, args): Promise<any> => {
     const openaiApiKey = process.env.OPENAI_API_KEY;
     if (!openaiApiKey) {
       throw new Error("Missing OPENAI_API_KEY environment variable.");
@@ -104,7 +80,7 @@ export const simulate = action({
     // 2. Handle File Ingestion Flow
     if (args.kind === "upload" && args.file) {
       const filename = args.file.filename || "Uploaded_Document";
-      
+
       // Upload file to R2
       const uploadResult = await ctx.runAction(internal.r2.uploadFile, {
         base64Data: args.file.base64,
@@ -136,8 +112,13 @@ export const simulate = action({
         filename,
       });
 
+      const downloadUrl: string = await ctx.runAction(api.r2.getDownloadUrl, {
+        r2Key: uploadResult.r2Key,
+        filename,
+      });
+
       return {
-        inbound: { kind: "upload" },
+        inbound: { kind: "upload", downloadUrl },
         replies: [
           {
             type: "text",
@@ -189,8 +170,8 @@ export const simulate = action({
 
       if (matches.length > 0) {
         const chunkIds = matches.map((m) => m._id);
-        const results = await ctx.runQuery(internal.chat_db.getChunksWithDocs, { chunkIds });
-        contextText = results.map((r) => `[Document: ${r.filename} (ID: ${r.documentId})]\n${r.text}`).join("\n\n---\n\n");
+        const results: any[] = await ctx.runQuery(internal.chat_db.getChunksWithDocs, { chunkIds });
+        contextText = results.map((r: any) => `[Document: ${r.filename} (ID: ${r.documentId})]\n${r.text}`).join("\n\n---\n\n");
 
         // Unique documents
         const seen = new Set();
@@ -237,18 +218,20 @@ Instructions:
    - If they are, set "shouldAttachDocumentId" to the matching Document ID.
    - If they are only asking questions about the document content but not asking for the file itself, or if they are asking a general question, set "shouldAttachDocumentId" to null.`;
 
-    const { object: chatResult } = await generateObject({
+    const { output: chatResult } = await generateText({
       model: openai("gpt-4o-mini"),
-      schema: z.object({
-        textReply: z.string().describe("Conversational reply to user's question."),
-        shouldAttachDocumentId: z.string().nullable().describe("ID of document user is asking to download or get, otherwise null."),
+      output: Output.object({
+        schema: z.object({
+          textReply: z.string().describe("Conversational reply to user's question."),
+          shouldAttachDocumentId: z.string().nullable().describe("ID of document user is asking to download or get, otherwise null."),
+        }),
       }),
       system: "You are Magic Vault, a helpful document assistant.",
       prompt: systemPrompt,
     });
 
     const replyText = chatResult.textReply;
-    const replies: any[] = [{ type: "text", text: replyText }];
+    const replies: any[] = [];
 
     // If user asked for the document, generate a signed download link and attach it
     if (chatResult.shouldAttachDocumentId) {
@@ -263,7 +246,7 @@ Instructions:
             type: "document",
             filename: docToAttach.filename,
             mimeType: docToAttach.mimeType,
-            caption: `Here is the requested document: ${docToAttach.filename}`,
+            caption: "",
             downloadUrl,
           });
         } catch (err) {
@@ -272,33 +255,12 @@ Instructions:
       }
     }
 
-    // 6. Generate Voice response if query was voice
-    if (args.kind === "voice") {
-      try {
-        const base64Audio = await textToSpeech(replyText, openaiApiKey);
-        
-        // Upload voice response to R2 so we can download/stream it
-        const uploadResult = await ctx.runAction(internal.r2.uploadFile, {
-          base64Data: base64Audio,
-          mimeType: "audio/mp3",
-          filename: `reply-${Date.now()}.mp3`,
-        });
-
-        // We can use getDownloadUrl action to get pre-signed stream link
-        const downloadUrl = await ctx.runAction(api.r2.getDownloadUrl, {
-          r2Key: uploadResult.r2Key,
-          filename: "reply.mp3",
-        });
-
-        replies.push({
-          type: "voice",
-          audioUrl: downloadUrl,
-          durationSec: Math.ceil(replyText.length / 15), // Rough estimation
-        });
-      } catch (err) {
-        console.error("TTS generation error", err);
-      }
+    // Only send the text reply if we didn't attach a document
+    if (replies.length === 0) {
+      replies.push({ type: "text", text: replyText });
     }
+
+
 
     return {
       inbound: {

@@ -69,6 +69,7 @@ type ChatMsg =
       filename: string;
       mimeType: string;
       previewUrl?: string;
+      downloadUrl?: string;
       status: DeliveryStatus;
     })
   | (BaseMsg & { sender: 'user'; kind: 'voice'; audioUrl: string; durationSec: number; status: DeliveryStatus })
@@ -114,15 +115,7 @@ export function WhatsAppSimulator() {
   const [isRecording, setIsRecording] = useState(false);
   const [recordSeconds, setRecordSeconds] = useState(0);
 
-  function speakText(text: string) {
-    if ('speechSynthesis' in window) {
-      window.speechSynthesis.cancel();
-      const utterance = new SpeechSynthesisUtterance(text);
-      window.speechSynthesis.speak(utterance);
-    } else {
-      toast.error('Text-to-speech is not supported in this browser.');
-    }
-  }
+
 
   useEffect(() => {
     setMounted(true);
@@ -414,9 +407,9 @@ export function WhatsAppSimulator() {
             {/* User - File Upload */}
             {isUser && msg.kind === 'upload' && (
               <div className="bg-primary text-primary-foreground rounded-2xl rounded-tr-none p-2 shadow-sm break-words self-end">
-                {msg.previewUrl ? (
+                {msg.mimeType?.startsWith('image/') && (msg.previewUrl || msg.downloadUrl) ? (
                   <img
-                    src={msg.previewUrl}
+                    src={msg.previewUrl || msg.downloadUrl}
                     alt={msg.filename}
                     className="rounded-lg object-cover max-w-full h-auto max-h-48"
                   />
@@ -464,17 +457,7 @@ export function WhatsAppSimulator() {
                       <span>{msg.text}</span>
                     )}
                   </div>
-                  {msg.kind === 'text' && (
-                    <Button
-                      variant="ghost"
-                      size="icon"
-                      className="h-6 w-6 shrink-0 text-muted-foreground hover:text-foreground"
-                      onClick={() => speakText(msg.text)}
-                      title="Speak message"
-                    >
-                      <Volume2 className="h-3.5 w-3.5" />
-                    </Button>
-                  )}
+
                 </div>
               </div>
             )}
@@ -483,26 +466,29 @@ export function WhatsAppSimulator() {
             {!isUser && msg.kind === 'document' && (
               <Card className="self-start overflow-hidden w-full max-w-[290px] border border-border/80 shadow-sm bg-card">
                 <CardHeader className="p-3 pb-2 flex flex-col gap-2">
-                  {msg.mimeType.startsWith('image/') && (
+                  {msg.mimeType.startsWith('image/') ? (
                     <img
                       src={msg.downloadUrl}
                       alt={msg.filename}
                       className="rounded-md object-cover max-w-full h-auto max-h-40 mb-1"
                     />
+                  ) : (
+                    <div className="flex items-start gap-2.5">
+                      <div className="h-9 w-9 shrink-0 rounded-lg bg-emerald-500/10 flex items-center justify-center text-emerald-500">
+                        <FileText className="h-5 w-5" />
+                      </div>
+                      <div className="min-w-0">
+                        <h4 className="text-xs font-semibold text-foreground line-clamp-1 break-all">
+                          {msg.filename}
+                        </h4>
+                        {msg.caption && (
+                          <p className="text-[10px] text-muted-foreground mt-0.5 line-clamp-2">
+                            {msg.caption}
+                          </p>
+                        )}
+                      </div>
+                    </div>
                   )}
-                  <div className="flex items-start gap-2.5">
-                    <div className="h-9 w-9 shrink-0 rounded-lg bg-emerald-500/10 flex items-center justify-center text-emerald-500">
-                      {msg.mimeType.startsWith('image/') ? <ImageIcon className="h-5 w-5" /> : <FileText className="h-5 w-5" />}
-                    </div>
-                    <div className="min-w-0">
-                      <h4 className="text-xs font-semibold text-foreground line-clamp-1 break-all">
-                        {msg.filename}
-                      </h4>
-                      <p className="text-[10px] text-muted-foreground mt-0.5 line-clamp-2">
-                        {msg.caption}
-                      </p>
-                    </div>
-                  </div>
                 </CardHeader>
                 <CardContent className="p-3 pt-0 flex gap-2">
                   <Button
@@ -582,7 +568,7 @@ export function WhatsAppSimulator() {
 
         {/* Chat Scroll Viewport */}
         <div className="flex-1 min-h-0 relative bg-muted/10">
-          <MessageScrollerProvider>
+          <MessageScrollerProvider autoScroll defaultScrollPosition="last-anchor" scrollPreviousItemPeek={48}>
             <MessageScroller className="size-full">
               <MessageScrollerViewport className="py-4">
                 {messages.length === 0 ? (
@@ -598,7 +584,7 @@ export function WhatsAppSimulator() {
                 ) : (
                   <MessageScrollerContent>
                     {messages.map((msg) => (
-                      <MessageScrollerItem key={msg.id}>
+                      <MessageScrollerItem key={msg.id} messageId={msg.id} scrollAnchor={msg.sender === 'user'}>
                         {renderMessage(msg)}
                       </MessageScrollerItem>
                     ))}

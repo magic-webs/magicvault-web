@@ -2,9 +2,9 @@
 
 import { internalAction } from "./_generated/server";
 import { v } from "convex/values";
-import { internal } from "./_generated/api";
+import { api, internal } from "./_generated/api";
 import { createOpenAI } from "@ai-sdk/openai";
-import { generateObject, embedMany } from "ai";
+import { generateText, Output, embedMany } from "ai";
 import { z } from "zod";
 import { S3Client, GetObjectCommand } from "@aws-sdk/client-s3";
 // @ts-ignore
@@ -81,10 +81,12 @@ export const processDocument = internalAction({
       } else if (args.mimeType.startsWith("image/")) {
         const base64Data = fileBuffer.toString("base64");
         // Run OCR using OpenAI Multimodal vision
-        const response = await generateObject({
+        const response = await generateText({
           model: openai("gpt-4o-mini"),
-          schema: z.object({
-            text: z.string().describe("All readable text extracted from the image"),
+          output: Output.object({
+            schema: z.object({
+              text: z.string().describe("All readable text extracted from the image"),
+            }),
           }),
           messages: [
             {
@@ -102,7 +104,7 @@ export const processDocument = internalAction({
             },
           ],
         });
-        extractedText = response.object.text;
+        extractedText = response.output.text;
       } else {
         // Default text file parsing
         extractedText = fileBuffer.toString("utf-8");
@@ -115,24 +117,26 @@ export const processDocument = internalAction({
       }
 
       // 3. Generate structured details
-      const detailsResponse = await generateObject({
+      const detailsResponse = await generateText({
         model: openai("gpt-4o-mini"),
-        schema: z.object({
-          title: z.string().describe("A clean title for the document"),
-          category: z.string().describe("Invoice, receipt, ID card, certificate, manual, personal, or work"),
-          summary: z.string().describe("A 1-to-2 sentence summary of what this document contains"),
-          tags: z.array(z.string()).describe("A list of 3-5 keywords or tags"),
+        output: Output.object({
+          schema: z.object({
+            title: z.string().describe("A clean title for the document"),
+            category: z.string().describe("Invoice, receipt, ID card, certificate, manual, personal, or work"),
+            summary: z.string().describe("A 1-to-2 sentence summary of what this document contains"),
+            tags: z.array(z.string()).describe("A list of 3-5 keywords or tags"),
+          }),
         }),
         prompt: isTextExtractable
           ? `Analyze the following extracted text from a document (filename: "${args.filename}") and generate metadata:\n\n${extractedText.slice(0, 10000)}`
           : `Generate metadata for an uploaded document with filename "${args.filename}" that has no selectable text.`,
       });
 
-      const { title, category, summary, tags } = detailsResponse.object;
+      const { title, category, summary, tags } = detailsResponse.output;
 
       // 3. Chunk text and generate embeddings
       const chunks = chunkText(extractedText);
-      
+
       const { embeddings } = await embedMany({
         model: openai.embedding("text-embedding-3-small"),
         values: chunks,
@@ -152,12 +156,15 @@ export const processDocument = internalAction({
 
       // 5. Update document details
       const extension = args.filename.split(".").pop() || "";
-      const cleanTitle = title.trim().replace(/[^a-zA-Z0-9]/g, "_");
+      // Convert to clean lowercase kebab-case (e.g. abhijit-pradhan-adhar)
+      const cleanTitle = title.toLowerCase().trim()
+        .replace(/[^a-z0-9\s-_]/g, "")
+        .replace(/[\s_]+/g, "-");
       const cleanFilename = `${cleanTitle}.${extension}`;
 
       await ctx.runMutation(internal.documents.updateDocumentDetails, {
         documentId: args.documentId,
-        title,
+        title: cleanTitle,
         filename: cleanFilename,
         category,
         summary,
@@ -165,11 +172,26 @@ export const processDocument = internalAction({
         status: "ready",
       });
 
+      // Send analysis completion notification message to chat history
+      try {
+        const user = await ctx.runQuery(internal.chat_db.getUserById, { userId: args.userId });
+        if (user) {
+          await ctx.runMutation(api.messages.storeMessage, {
+            whatsappNumber: user.whatsappNumber,
+            sender: "assistant",
+            kind: "text",
+            text: `🤖 Document Analysis Complete!\n\nI have successfully processed and saved your document as:\n📁 *${cleanFilename}*\n\n*Category:* ${category}\n*Summary:* ${summary}`,
+          });
+        }
+      } catch (msgErr) {
+        console.error("Failed to store document completion message", msgErr);
+      }
+
       return { success: true };
     } catch (error) {
       console.error("Ingestion failed", error);
       const failureReason = error instanceof Error ? error.message : String(error);
-      
+
       await ctx.runMutation(internal.documents.updateDocumentDetails, {
         documentId: args.documentId,
         title: args.filename,
@@ -179,6 +201,21 @@ export const processDocument = internalAction({
         status: "failed",
         failureReason,
       });
+
+      // Send analysis failure notification message to chat history
+      try {
+        const user = await ctx.runQuery(internal.chat_db.getUserById, { userId: args.userId });
+        if (user) {
+          await ctx.runMutation(api.messages.storeMessage, {
+            whatsappNumber: user.whatsappNumber,
+            sender: "assistant",
+            kind: "text",
+            text: `⚠️ Document Ingestion Failed\n\nI was unable to process the uploaded file "${args.filename}".\n*Reason:* ${failureReason}`,
+          });
+        }
+      } catch (msgErr) {
+        console.error("Failed to store document failure message", msgErr);
+      }
 
       return { success: false, error: failureReason };
     }
