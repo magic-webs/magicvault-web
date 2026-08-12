@@ -197,6 +197,11 @@ export const getDocument = query({
       throw new Error("Unauthorized");
     }
 
+    const user = await ctx.db.get(session.userId);
+    if (!user) {
+      throw new Error("User not found");
+    }
+
     const docId = ctx.db.normalizeId("documents", args.documentId);
     if (!docId) {
       throw new Error("Invalid document ID");
@@ -207,7 +212,24 @@ export const getDocument = query({
       throw new Error("Document not found");
     }
 
-    return doc;
+    return {
+      id: doc._id,
+      userId: doc.userId,
+      whatsappNumber: user.whatsappNumber,
+      title: doc.title,
+      filename: doc.filename,
+      documentType: doc.documentType,
+      category: doc.category,
+      summary: doc.summary,
+      tags: doc.tags,
+      mimeType: doc.mimeType,
+      size: doc.size,
+      r2Key: doc.r2Key,
+      status: doc.status,
+      failureReason: doc.failureReason ?? null,
+      createdAt: new Date(doc.createdAt).toISOString(),
+      updatedAt: new Date(doc._creationTime).toISOString(),
+    };
   },
 });
 

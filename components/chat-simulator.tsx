@@ -4,7 +4,6 @@ import { useRef, useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import {
   Message,
-  MessageGroup,
   MessageAvatar,
   MessageContent,
   MessageHeader,
@@ -20,38 +19,24 @@ import {
 } from "@/components/ui/message-scroller";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
-import { Input } from "@/components/ui/input";
-import { Badge } from "@/components/ui/badge";
-import { Separator } from "@/components/ui/separator";
-import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
+import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import {
   MessageSquare,
   Paperclip,
   FileText,
-  Image as ImageIcon,
   Download,
   User as UserIcon,
-  Trash2,
-  Volume2,
   Mic,
   Square,
-  Phone,
-  LogOut,
-  ArrowLeft,
-  RefreshCw,
   Loader2,
   Send,
   Sparkles,
-  Settings,
   X,
   ShieldCheck,
-  ArrowDown,
-  Plus,
   Zap,
   BrainCircuit
 } from "lucide-react";
 import { toast } from "sonner";
-import { PhoneInput, DEFAULT_COUNTRY_CODE, COUNTRY_CODES, toE164 } from './phone-input';
 import { getStoredUser, type AuthUser } from '@/lib/auth-api';
 import { ThemeToggle } from '@/components/theme-provider';
 import { simulateMessage, blobToBase64, SimulateApiError, type SimulateReply, getStoredAiProvider, setStoredAiProvider, type AiProvider, AI_PROVIDER_KEY } from '@/lib/simulate-api';
@@ -67,27 +52,27 @@ interface BaseMsg {
 type ChatMsg =
   | (BaseMsg & { sender: 'user'; kind: 'text'; text: string; status: DeliveryStatus })
   | (BaseMsg & {
-      sender: 'user';
-      kind: 'upload';
-      filename: string;
-      mimeType: string;
-      previewUrl?: string;
-      downloadUrl?: string;
-      status: DeliveryStatus;
-    })
+    sender: 'user';
+    kind: 'upload';
+    filename: string;
+    mimeType: string;
+    previewUrl?: string;
+    downloadUrl?: string;
+    status: DeliveryStatus;
+  })
   | (BaseMsg & { sender: 'user'; kind: 'voice'; audioUrl: string; durationSec: number; status: DeliveryStatus })
   | (BaseMsg & { sender: 'assistant'; kind: 'text'; text: string })
   | (BaseMsg & { sender: 'assistant'; kind: 'transcript'; text: string })
   | (BaseMsg & { sender: 'assistant'; kind: 'error'; text: string })
   | (BaseMsg & { sender: 'assistant'; kind: 'voice'; audioUrl: string; durationSec: number })
   | (BaseMsg & {
-      sender: 'assistant';
-      kind: 'document';
-      filename: string;
-      mimeType: string;
-      caption: string;
-      downloadUrl: string;
-    });
+    sender: 'assistant';
+    kind: 'document';
+    filename: string;
+    mimeType: string;
+    caption: string;
+    downloadUrl: string;
+  });
 
 const SUPPORTED_UPLOAD_ACCEPT = 'application/pdf,image/png,image/jpeg,image/webp,image/heic';
 
@@ -122,20 +107,7 @@ export function ChatSimulator() {
   // OpenAI is the default — always falls back to 'openai' if localStorage is empty
   const [aiProvider, setAiProvider] = useState<AiProvider>('openai');
 
-  const messagesEndRef = useRef<HTMLDivElement | null>(null);
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
-
-  const scrollToBottom = () => {
-    messagesEndRef.current?.scrollIntoView({ behavior: 'auto' });
-  };
-
-  // Scroll to bottom whenever messages update
-  useEffect(() => {
-    if (messages.length > 0) {
-      const timer = setTimeout(scrollToBottom, 60);
-      return () => clearTimeout(timer);
-    }
-  }, [messages]);
 
   // Auto-resize textarea on composerValue change
   useEffect(() => {
@@ -177,7 +149,7 @@ export function ChatSimulator() {
   // Restore stored chat history when whatsappNumber changes
   useEffect(() => {
     if (typeof window === 'undefined' || !whatsappNumber) return;
-    
+
     // 1. Try to load from localStorage cache first for fast initial load
     let loaded = false;
     const raw = localStorage.getItem(`magic-vault-chat-${whatsappNumber}`);
@@ -224,7 +196,7 @@ export function ChatSimulator() {
     if (typeof window !== 'undefined') {
       localStorage.removeItem(`magic-vault-chat-${whatsappNumber}`);
     }
-    
+
     try {
       const res = await fetch(`/api/simulate/chat?whatsappNumber=${encodeURIComponent(whatsappNumber)}`, {
         method: 'DELETE',
@@ -473,7 +445,6 @@ export function ChatSimulator() {
                       src={msg.previewUrl || msg.downloadUrl || ''}
                       alt={msg.filename}
                       className="rounded-lg object-cover max-w-full h-auto max-h-48"
-                      onLoadComplete={scrollToBottom}
                     />
                   </div>
                 ) : (
@@ -553,7 +524,7 @@ export function ChatSimulator() {
                         <Sparkles className="h-4 w-4 shrink-0 animate-pulse" />
                         <span>Document Analysis Complete</span>
                       </div>
-                      
+
                       {analysis.filename && (
                         <div className="flex flex-col gap-1">
                           <span className="text-[9px] text-muted-foreground uppercase font-bold tracking-wider">File Name</span>
@@ -590,7 +561,7 @@ export function ChatSimulator() {
                         <Sparkles className="h-4 w-4 shrink-0 animate-pulse" />
                         <span>Document Analysis Complete</span>
                       </div>
-                      
+
                       {legacyAnalysis.filename && (
                         <div className="flex flex-col gap-1">
                           <span className="text-[9px] text-muted-foreground uppercase font-bold tracking-wider">File Name</span>
@@ -654,9 +625,8 @@ export function ChatSimulator() {
 
               // Standard message bubble rendering
               return (
-                <div className={`rounded-2xl rounded-tl-none px-4 py-2.5 text-sm shadow-sm break-words self-start ${
-                  msg.kind === 'error' ? 'bg-red-500/10 border border-red-500/20 text-red-600 dark:text-red-400' : 'bg-muted text-foreground'
-                }`}>
+                <div className={`rounded-2xl rounded-tl-none px-4 py-2.5 text-sm shadow-sm break-words self-start ${msg.kind === 'error' ? 'bg-red-500/10 border border-red-500/20 text-red-600 dark:text-red-400' : 'bg-muted text-foreground'
+                  }`}>
                   <div className="flex items-start gap-2 justify-between">
                     <div className="flex-1">
                       {msg.kind === 'transcript' ? (
@@ -683,7 +653,6 @@ export function ChatSimulator() {
                         src={msg.downloadUrl}
                         alt={msg.filename}
                         className="rounded-md object-cover max-w-full h-auto max-h-40 mb-1"
-                        onLoadComplete={scrollToBottom}
                       />
                     </div>
                   ) : (
@@ -755,11 +724,10 @@ export function ChatSimulator() {
             >
               <button
                 onClick={() => handleSetAiProvider('openai')}
-                className={`flex items-center gap-1 px-2 py-1 rounded-md text-[11px] font-semibold transition-all duration-200 ${
-                  aiProvider === 'openai'
-                    ? 'bg-background text-foreground shadow-sm border border-border/40'
-                    : 'text-muted-foreground hover:text-foreground'
-                }`}
+                className={`flex items-center gap-1 px-2 py-1 rounded-md text-[11px] font-semibold transition-all duration-200 ${aiProvider === 'openai'
+                  ? 'bg-background text-foreground shadow-sm border border-border/40'
+                  : 'text-muted-foreground hover:text-foreground'
+                  }`}
                 title="Use OpenAI GPT-4o Mini (default)"
               >
                 <BrainCircuit className="h-3 w-3" />
@@ -767,11 +735,10 @@ export function ChatSimulator() {
               </button>
               <button
                 onClick={() => handleSetAiProvider('gateway')}
-                className={`flex items-center gap-1 px-2 py-1 rounded-md text-[11px] font-semibold transition-all duration-200 ${
-                  aiProvider === 'gateway'
-                    ? 'bg-background text-foreground shadow-sm border border-border/40'
-                    : 'text-muted-foreground hover:text-foreground'
-                }`}
+                className={`flex items-center gap-1 px-2 py-1 rounded-md text-[11px] font-semibold transition-all duration-200 ${aiProvider === 'gateway'
+                  ? 'bg-background text-foreground shadow-sm border border-border/40'
+                  : 'text-muted-foreground hover:text-foreground'
+                  }`}
                 title="Use AI Gateway (DeepSeek)"
               >
                 <Zap className={`h-3 w-3 ${aiProvider === 'gateway' ? 'text-amber-500' : ''}`} />
@@ -813,7 +780,7 @@ export function ChatSimulator() {
 
         {/* Chat Scroll Viewport */}
         <div className="flex-1 min-h-0 relative bg-muted/10">
-          <MessageScrollerProvider autoScroll defaultScrollPosition="last-anchor" scrollPreviousItemPeek={48}>
+          <MessageScrollerProvider autoScroll defaultScrollPosition="end">
             <MessageScroller className="size-full">
               <MessageScrollerViewport className="py-4">
                 {messages.length === 0 ? (
@@ -829,12 +796,12 @@ export function ChatSimulator() {
                 ) : (
                   <MessageScrollerContent>
                     {messages.map((msg) => (
-                      <MessageScrollerItem key={msg.id} messageId={msg.id} scrollAnchor={true}>
+                      <MessageScrollerItem key={msg.id} messageId={msg.id} scrollAnchor={false}>
                         {renderMessage(msg)}
                       </MessageScrollerItem>
                     ))}
                     {isAiLoading && (
-                      <MessageScrollerItem messageId="ai-loading" scrollAnchor={true}>
+                      <MessageScrollerItem messageId="ai-loading" scrollAnchor={false}>
                         <Message align="start" className="px-2 md:px-4 py-1 animate-fade-in">
                           <MessageAvatar>
                             <Avatar className="size-8">
@@ -856,7 +823,6 @@ export function ChatSimulator() {
                         </Message>
                       </MessageScrollerItem>
                     )}
-                    <div ref={messagesEndRef} />
                   </MessageScrollerContent>
                 )}
               </MessageScrollerViewport>
