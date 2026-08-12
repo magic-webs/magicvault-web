@@ -1,32 +1,20 @@
 'use client';
 
-import { useState, useEffect, type CSSProperties } from 'react';
+import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import NextLink from 'next/link';
-import { VStack } from '@astryxdesign/core/VStack';
-import { Center } from '@astryxdesign/core/Center';
-import { Text, Heading } from '@astryxdesign/core/Text';
-import { TextInput } from '@astryxdesign/core/TextInput';
-import { Button } from '@astryxdesign/core/Button';
-import { Card } from '@astryxdesign/core/Card';
-import { Icon } from '@astryxdesign/core/Icon';
-import { Banner } from '@astryxdesign/core/Banner';
-import { Link } from '@astryxdesign/core/Link';
-import { useMediaQuery } from '@astryxdesign/core/hooks';
-import { ChatBubbleLeftRightIcon } from '@heroicons/react/24/outline';
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
+import { MessageSquare, AlertCircle, Loader2 } from "lucide-react";
 import { register, saveSession, getStoredUser, AuthApiError } from '@/lib/auth-api';
 import { PhoneInput, DEFAULT_COUNTRY_CODE, toE164 } from '@/components/phone-input';
 import { ThemeToggle } from '@/components/theme-provider';
 
 const PHONE_PATTERN = /^\+[1-9]\d{7,14}$/;
 
-// Standalone auth page paints its own background (no AppShell host).
-const pageStyle: CSSProperties = { minHeight: '100%', backgroundColor: 'var(--color-background-body)', position: 'relative' };
-const contentStyle: CSSProperties = { width: '100%', maxWidth: 400 };
-
 export default function RegisterPage() {
   const router = useRouter();
-  const isMobile = useMediaQuery('(max-width: 639px)');
   const [countryCode, setCountryCode] = useState(DEFAULT_COUNTRY_CODE);
   const [localNumber, setLocalNumber] = useState('');
   const [password, setPassword] = useState('');
@@ -40,7 +28,8 @@ export default function RegisterPage() {
     }
   }, [router]);
 
-  async function handleRegister() {
+  async function handleRegister(e: React.FormEvent) {
+    e.preventDefault();
     setError('');
     const whatsappNumber = toE164(countryCode, localNumber);
 
@@ -70,69 +59,93 @@ export default function RegisterPage() {
   }
 
   return (
-    <Center axis="both" style={{ ...pageStyle, padding: isMobile ? 'var(--spacing-4) var(--spacing-3)' : 'var(--spacing-8)' }}>
+    <div className="min-h-screen w-screen flex flex-col items-center justify-center bg-background p-4 relative">
+      {/* Top right theme toggle */}
       <div className="absolute top-4 right-4 z-10">
-        <ThemeToggle size="md" />
+        <ThemeToggle />
       </div>
-      <VStack gap={4} hAlign="center" style={contentStyle}>
-        <VStack gap={2} hAlign="center">
-          <Icon icon={ChatBubbleLeftRightIcon} size="lg" />
-          <Text type="body" weight="bold" size="lg">
-            Magic Vault
-          </Text>
-        </VStack>
 
-        <Card padding={isMobile ? 4 : 8} width="100%">
-          <VStack gap={4} hAlign="stretch">
-            <VStack gap={1} hAlign="center">
-              <Heading level={2}>Create your account</Heading>
-              <Text type="body" color="secondary" size="sm">
-                Sign up with your WhatsApp number
-              </Text>
-            </VStack>
+      <div className="w-full max-w-[400px] flex flex-col gap-6">
+        {/* Logo and Brand */}
+        <div className="flex flex-col items-center gap-2">
+          <div className="h-10 w-10 rounded-xl bg-emerald-500/10 flex items-center justify-center text-emerald-500">
+            <MessageSquare className="h-6 w-6" />
+          </div>
+          <h1 className="text-xl font-bold tracking-tight">Magic Vault</h1>
+        </div>
 
-            {error && <Banner status="error" title={error} container="card" />}
+        {/* Card for registration form */}
+        <Card className="border-border/80 shadow-md">
+          <CardHeader className="space-y-1 text-center">
+            <CardTitle className="text-xl font-bold">Create account</CardTitle>
+            <CardDescription className="text-xs">
+              Sign up with your WhatsApp number
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <form onSubmit={handleRegister} className="flex flex-col gap-4">
+              {error && (
+                <div className="flex items-center gap-2 text-xs font-medium text-red-600 bg-red-500/10 border border-red-500/20 px-3.5 py-2.5 rounded-lg">
+                  <AlertCircle className="h-4 w-4 shrink-0" />
+                  <span>{error}</span>
+                </div>
+              )}
 
-            <PhoneInput
-              countryCode={countryCode}
-              onCountryCodeChange={setCountryCode}
-              localNumber={localNumber}
-              onLocalNumberChange={setLocalNumber}
-              size="lg"
-              isRequired
-            />
+              <PhoneInput
+                countryCode={countryCode}
+                onCountryCodeChange={setCountryCode}
+                localNumber={localNumber}
+                onLocalNumberChange={setLocalNumber}
+                isRequired
+              />
 
-            <TextInput
-              label="Password"
-              value={password}
-              onChange={setPassword}
-              placeholder="At least 8 characters"
-              type="password"
-              size="lg"
-              isRequired
-            />
+              <div className="flex flex-col gap-1.5 w-full">
+                <label className="text-sm font-medium text-foreground">
+                  Password <span className="text-red-500">*</span>
+                </label>
+                <Input
+                  type="password"
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                  placeholder="At least 8 characters"
+                  required
+                />
+              </div>
 
-            <TextInput
-              label="Confirm password"
-              value={confirmPassword}
-              onChange={setConfirmPassword}
-              placeholder="Re-enter your password"
-              type="password"
-              size="lg"
-              isRequired
-            />
+              <div className="flex flex-col gap-1.5 w-full">
+                <label className="text-sm font-medium text-foreground">
+                  Confirm Password <span className="text-red-500">*</span>
+                </label>
+                <Input
+                  type="password"
+                  value={confirmPassword}
+                  onChange={(e) => setConfirmPassword(e.target.value)}
+                  placeholder="Re-enter your password"
+                  required
+                />
+              </div>
 
-            <Button label="Create account" variant="primary" size="lg" isLoading={isLoading} onClick={handleRegister} />
+              <Button type="submit" className="w-full mt-2" disabled={isLoading}>
+                {isLoading ? (
+                  <>
+                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                    Creating account...
+                  </>
+                ) : (
+                  'Create account'
+                )}
+              </Button>
 
-            <Text type="body" size="sm" justify="center">
-              Already have an account?{' '}
-              <Link as={NextLink} href="/login">
-                Sign in
-              </Link>
-            </Text>
-          </VStack>
+              <p className="text-xs text-center text-muted-foreground mt-1">
+                Already have an account?{' '}
+                <NextLink href="/login" className="text-primary hover:underline font-medium">
+                  Sign in
+                </NextLink>
+              </p>
+            </form>
+          </CardContent>
         </Card>
-      </VStack>
-    </Center>
+      </div>
+    </div>
   );
 }

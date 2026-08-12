@@ -2,42 +2,56 @@
 
 import { useRef, useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
-import { AppShell } from '@astryxdesign/core/AppShell';
-import { TopNav, TopNavHeading } from '@astryxdesign/core/TopNav';
-import { NavIcon } from '@astryxdesign/core/NavIcon';
-import { VStack } from '@astryxdesign/core/VStack';
-import { HStack } from '@astryxdesign/core/HStack';
-import { StackItem } from '@astryxdesign/core/Stack';
-import { Text } from '@astryxdesign/core/Text';
-import { Card } from '@astryxdesign/core/Card';
-import { Button } from '@astryxdesign/core/Button';
-import { IconButton } from '@astryxdesign/core/IconButton';
-import { Icon } from '@astryxdesign/core/Icon';
-import { EmptyState } from '@astryxdesign/core/EmptyState';
-import { Timestamp } from '@astryxdesign/core/Timestamp';
-import { useToast } from '@astryxdesign/core/Toast';
-import { useMediaQuery } from '@astryxdesign/core/hooks';
+import {
+  Message,
+  MessageGroup,
+  MessageAvatar,
+  MessageContent,
+  MessageHeader,
+  MessageFooter,
+} from "@/components/ui/message";
+import {
+  MessageScroller,
+  MessageScrollerViewport,
+  MessageScrollerContent,
+  MessageScrollerItem,
+  MessageScrollerButton,
+  MessageScrollerProvider,
+} from "@/components/ui/message-scroller";
+import { Button } from "@/components/ui/button";
+import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
+import { Input } from "@/components/ui/input";
+import { Badge } from "@/components/ui/badge";
+import { Separator } from "@/components/ui/separator";
+import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
+import {
+  MessageSquare,
+  Paperclip,
+  FileText,
+  Image as ImageIcon,
+  Download,
+  User as UserIcon,
+  Trash2,
+  Volume2,
+  Mic,
+  Square,
+  Phone,
+  LogOut,
+  ArrowLeft,
+  RefreshCw,
+  Loader2,
+  Send,
+  Sparkles,
+  Settings,
+  X,
+  ShieldCheck,
+  ArrowDown,
+  Plus
+} from "lucide-react";
+import { toast } from "sonner";
 import { PhoneInput, DEFAULT_COUNTRY_CODE, COUNTRY_CODES, toE164 } from './phone-input';
 import { getStoredUser, type AuthUser } from '@/lib/auth-api';
 import { ThemeToggle } from '@/components/theme-provider';
-import {
-  ChatLayout,
-  ChatMessageList,
-  ChatMessage,
-  ChatMessageBubble,
-  ChatMessageMetadata,
-  ChatComposer,
-} from '@astryxdesign/core/Chat';
-import {
-  ChatBubbleLeftRightIcon,
-  PaperClipIcon,
-  DocumentTextIcon,
-  PhotoIcon,
-  ArrowDownTrayIcon,
-  UserIcon,
-  TrashIcon,
-  SpeakerWaveIcon,
-} from '@heroicons/react/24/outline';
 import { simulateMessage, blobToBase64, SimulateApiError, type SimulateReply } from '@/lib/simulate-api';
 
 type DeliveryStatus = 'sending' | 'sent' | 'error';
@@ -71,22 +85,23 @@ type ChatMsg =
       downloadUrl: string;
     });
 
-
 const SUPPORTED_UPLOAD_ACCEPT = 'application/pdf,image/png,image/jpeg,image/webp,image/heic';
 
-function toDeliveryStatus(status: DeliveryStatus): 'sending' | 'delivered' | 'error' {
-  if (status === 'sent') return 'delivered';
-  return status;
+function formatTime(iso: string): string {
+  try {
+    return new Date(iso).toLocaleTimeString(undefined, {
+      hour: '2-digit',
+      minute: '2-digit',
+    });
+  } catch {
+    return iso;
+  }
 }
 
 export function WhatsAppSimulator() {
   const router = useRouter();
-  const toast = useToast();
   const [mounted, setMounted] = useState(false);
-  const mediaQueryMatch = useMediaQuery('(max-width: 639px)');
-  const isMobile = mounted ? mediaQueryMatch : false;
   const [isMobileSettingsOpen, setIsMobileSettingsOpen] = useState(false);
-  const idCounter = useRef(0);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const recordChunksRef = useRef<Blob[]>([]);
@@ -108,7 +123,7 @@ export function WhatsAppSimulator() {
       const utterance = new SpeechSynthesisUtterance(text);
       window.speechSynthesis.speak(utterance);
     } else {
-      toast({ body: 'Text-to-speech is not supported in this browser.', type: 'error' });
+      toast.error('Text-to-speech is not supported in this browser.');
     }
   }
 
@@ -131,22 +146,41 @@ export function WhatsAppSimulator() {
   // Restore stored chat history when whatsappNumber changes
   useEffect(() => {
     if (typeof window === 'undefined' || !whatsappNumber) return;
+    
+    // 1. Try to load from localStorage cache first for fast initial load
+    let loaded = false;
     const raw = localStorage.getItem(`magic-vault-chat-${whatsappNumber}`);
     if (raw) {
       try {
         const parsed = JSON.parse(raw);
         if (Array.isArray(parsed)) {
           setMessages(parsed);
-          return;
+          loaded = true;
         }
       } catch {
         // ignore parse error
       }
     }
-    setMessages([]);
+    if (!loaded) {
+      setMessages([]);
+    }
+
+    // 2. Fetch fresh chat history from Convex database
+    fetch(`/api/simulate/chat?whatsappNumber=${encodeURIComponent(whatsappNumber)}`)
+      .then((res) => res.json())
+      .then((json) => {
+        if (json.success && Array.isArray(json.data)) {
+          setMessages(json.data);
+          // Update cache
+          localStorage.setItem(`magic-vault-chat-${whatsappNumber}`, JSON.stringify(json.data));
+        }
+      })
+      .catch((err) => {
+        console.error("Failed to load chat history from Convex", err);
+      });
   }, [whatsappNumber]);
 
-  // Save chat history when messages update
+  // Save chat history to local cache when messages update
   useEffect(() => {
     if (typeof window === 'undefined' || !whatsappNumber) return;
     if (messages.length > 0) {
@@ -154,12 +188,26 @@ export function WhatsAppSimulator() {
     }
   }, [messages, whatsappNumber]);
 
-  function clearChatHistory() {
+  async function clearChatHistory() {
     setMessages([]);
     if (typeof window !== 'undefined') {
       localStorage.removeItem(`magic-vault-chat-${whatsappNumber}`);
     }
-    toast({ body: `Chat history cleared for ${whatsappNumber}`, type: 'info' });
+    
+    try {
+      const res = await fetch(`/api/simulate/chat?whatsappNumber=${encodeURIComponent(whatsappNumber)}`, {
+        method: 'DELETE',
+      });
+      const json = await res.json();
+      if (json.success) {
+        toast.info(`Chat history cleared for ${whatsappNumber}`);
+      } else {
+        toast.error(json.error?.message || "Failed to clear chat history from database");
+      }
+    } catch (err) {
+      console.error("Failed to clear chat from database", err);
+      toast.error("Failed to clear chat history from database");
+    }
   }
 
   function nextId(): string {
@@ -208,12 +256,12 @@ export function WhatsAppSimulator() {
   function reportError(id: string | null, error: unknown) {
     if (id) updateStatus(id, 'error');
     const message = error instanceof SimulateApiError ? error.message : 'Could not reach the Magic Vault backend.';
-    toast({ body: message, type: 'error' });
+    toast.error(message);
     addMessage({ id: nextId(), sender: 'assistant', kind: 'error', text: message, timestamp: new Date().toISOString() });
   }
 
-  async function handleSubmitText(value: string) {
-    const text = value.trim();
+  async function handleSubmitText() {
+    const text = composerValue.trim();
     if (!text) return;
     const id = nextId();
     addMessage({ id, sender: 'user', kind: 'text', text, timestamp: new Date().toISOString(), status: 'sending' });
@@ -321,7 +369,7 @@ export function WhatsAppSimulator() {
         setRecordSeconds(Math.round((Date.now() - recordStartRef.current) / 1000));
       }, 250);
     } catch {
-      toast({ body: 'Microphone access denied or unavailable in this browser.', type: 'error' });
+      toast.error('Microphone access denied or unavailable in this browser.');
     }
   }
 
@@ -337,325 +385,458 @@ export function WhatsAppSimulator() {
     setMessages([]);
   }
 
-  function renderMessage(msg: ChatMsg) {
-    if (msg.sender === 'user' && msg.kind === 'text') {
-      return (
-        <ChatMessage key={msg.id} sender="user">
-          <ChatMessageBubble
-            metadata={
-              <ChatMessageMetadata
-                timestamp={<Timestamp value={msg.timestamp} format="time" />}
-                status={toDeliveryStatus(msg.status)}
-              />
-            }
-          >
-            {msg.text}
-          </ChatMessageBubble>
-        </ChatMessage>
-      );
-    }
-
-    if (msg.sender === 'user' && msg.kind === 'upload') {
-      return (
-        <ChatMessage key={msg.id} sender="user">
-          <ChatMessageBubble
-            metadata={
-              <ChatMessageMetadata
-                timestamp={<Timestamp value={msg.timestamp} format="time" />}
-                status={toDeliveryStatus(msg.status)}
-              />
-            }
-          >
-            {msg.previewUrl ? (
-              <img src={msg.previewUrl} alt={msg.filename} width={200} height={200} className="rounded-lg object-cover max-w-full h-auto max-h-48" />
-            ) : (
-              <HStack gap={2} vAlign="center">
-                <Icon icon={DocumentTextIcon} size="lg" />
-                <Text type="body" className="break-all">{msg.filename}</Text>
-              </HStack>
-            )}
-          </ChatMessageBubble>
-        </ChatMessage>
-      );
-    }
-
-    if (msg.sender === 'user' && msg.kind === 'voice') {
-      return (
-        <ChatMessage key={msg.id} sender="user">
-          <ChatMessageBubble
-            metadata={
-              <ChatMessageMetadata
-                timestamp={<Timestamp value={msg.timestamp} format="time" />}
-                status={toDeliveryStatus(msg.status)}
-              />
-            }
-          >
-            <VStack gap={1}>
-              <HStack gap={2} vAlign="center">
-                <Icon icon="microphone" size="sm" />
-                <Text type="body">Voice message · {msg.durationSec}s</Text>
-              </HStack>
-              <audio controls src={msg.audioUrl} className="h-8 w-56 max-w-full" />
-            </VStack>
-          </ChatMessageBubble>
-        </ChatMessage>
-      );
-    }
-
-    if (msg.sender === 'assistant' && msg.kind === 'voice') {
-      return (
-        <ChatMessage key={msg.id} sender="assistant">
-          <ChatMessageBubble
-            variant="ghost"
-            metadata={<ChatMessageMetadata timestamp={<Timestamp value={msg.timestamp} format="time" />} />}
-          >
-            <VStack gap={1}>
-              <HStack gap={2} vAlign="center">
-                <Icon icon="microphone" size="sm" />
-                <Text type="body">Voice note · {msg.durationSec}s</Text>
-              </HStack>
-              <audio controls src={msg.audioUrl} className="h-8 w-56 max-w-full" />
-            </VStack>
-          </ChatMessageBubble>
-        </ChatMessage>
-      );
-    }
-
-    if (msg.sender === 'assistant' && (msg.kind === 'text' || msg.kind === 'transcript' || msg.kind === 'error')) {
-      const label = msg.kind === 'transcript' ? `🎙️ Transcribed: "${msg.text}"` : msg.kind === 'error' ? `⚠️ ${msg.text}` : msg.text;
-      const isPlainText = msg.kind === 'text';
-      return (
-        <ChatMessage key={msg.id} sender="assistant">
-          <ChatMessageBubble variant="ghost" metadata={<ChatMessageMetadata timestamp={<Timestamp value={msg.timestamp} format="time" />} />}>
-            <HStack gap={2} vAlign="start">
-              <span className="flex-1">{label}</span>
-              {isPlainText && (
-                <IconButton
-                  label="Speak message"
-                  icon={<Icon icon={SpeakerWaveIcon} />}
-                  variant="ghost"
-                  size="sm"
-                  onClick={() => speakText(msg.text)}
-                />
-              )}
-            </HStack>
-          </ChatMessageBubble>
-        </ChatMessage>
-      );
-    }
-
-    if (msg.sender === 'assistant' && msg.kind === 'document') {
-      const isImage = msg.mimeType.startsWith('image/');
-      return (
-        <ChatMessage
-          key={msg.id}
-          sender="assistant"
-          metadata={<ChatMessageMetadata timestamp={<Timestamp value={msg.timestamp} format="time" />} />}
-        >
-          <Card variant="muted" padding={3} width="100%" maxWidth={300}>
-            <VStack gap={3}>
-              {isImage && (
-                <img
-                  src={msg.downloadUrl}
-                  alt={msg.filename}
-                  width={200}
-                  height={200}
-                  className="rounded-lg object-cover max-w-full h-auto max-h-48 mb-1"
-                />
-              )}
-              <HStack gap={3} vAlign="center">
-                <Icon icon={isImage ? PhotoIcon : DocumentTextIcon} size="lg" color="accent" />
-                <StackItem size="fill">
-                  <VStack gap={0.5}>
-                    <Text type="body" weight="medium">
-                      {msg.filename}
-                    </Text>
-                    <Text type="supporting" maxLines={2}>
-                      {msg.caption}
-                    </Text>
-                  </VStack>
-                </StackItem>
-              </HStack>
-              <Button
-                label="Download"
-                size="sm"
-                variant="secondary"
-                icon={<Icon icon={ArrowDownTrayIcon} />}
-                onClick={() => window.open(msg.downloadUrl, '_blank')}
-              />
-            </VStack>
-          </Card>
-        </ChatMessage>
-      );
-    }
-
-    return null;
+  function getStatusIcon(status: DeliveryStatus) {
+    if (status === 'sending') return <Loader2 className="h-3 w-3 animate-spin text-muted-foreground" />;
+    if (status === 'error') return <span className="text-red-500 text-xs">⚠️</span>;
+    return <span className="text-emerald-500 text-xs">✓✓</span>;
   }
 
-  return (
-    <AppShell
-      height="fill"
-      contentPadding={0}
-      topNav={
-        <TopNav
-          label="Magic Vault WhatsApp simulator"
-          heading={<TopNavHeading heading="Magic Vault" logo={<NavIcon icon={<ChatBubbleLeftRightIcon />} />} />}
-          endContent={
-            <HStack gap={2} vAlign="center" wrap="wrap" justify="end">
-              {isMobile ? (
-                <Button
-                  label={localNumber ? `${countryCode} ${localNumber}` : 'Number'}
-                  size="sm"
-                  variant={isMobileSettingsOpen ? 'primary' : 'secondary'}
-                  icon={<Icon icon={ChatBubbleLeftRightIcon} />}
-                  onClick={() => setIsMobileSettingsOpen((prev) => !prev)}
-                />
-              ) : (
-                <>
-                  <HStack maxWidth={210}>
-                    <PhoneInput
-                      countryCode={countryCode}
-                      onCountryCodeChange={setCountryCode}
-                      localNumber={localNumber}
-                      onLocalNumberChange={setLocalNumber}
-                      size="sm"
+  function renderMessage(msg: ChatMsg) {
+    const isUser = msg.sender === 'user';
+    const align = isUser ? 'end' : 'start';
+
+    return (
+      <Message key={msg.id} align={align} className="px-2 md:px-4 py-1">
+        <MessageAvatar>
+          <Avatar className="size-8">
+            <AvatarFallback className={isUser ? "bg-primary text-primary-foreground text-xs" : "bg-emerald-500 text-white text-xs"}>
+              {isUser ? <UserIcon className="h-4 w-4" /> : <Sparkles className="h-4 w-4" />}
+            </AvatarFallback>
+          </Avatar>
+        </MessageAvatar>
+        <MessageContent>
+          <MessageHeader className={`flex items-center gap-1.5 mb-0.5 ${isUser ? 'self-end' : 'self-start'}`}>
+            <span className="font-semibold text-xs text-foreground">
+              {isUser ? 'You' : 'Magic Vault'}
+            </span>
+            <span className="text-[10px] text-muted-foreground">
+              {formatTime(msg.timestamp)}
+            </span>
+          </MessageHeader>
+
+          {/* Render Bubble Contents depending on message kind */}
+          <div className={`flex flex-col gap-2 w-full max-w-[85%] ${isUser ? 'items-end self-end' : 'items-start self-start'}`}>
+            {/* User - Text */}
+            {isUser && msg.kind === 'text' && (
+              <div className="bg-primary text-primary-foreground rounded-2xl rounded-tr-none px-4 py-2.5 text-sm shadow-sm break-words self-end">
+                {msg.text}
+              </div>
+            )}
+
+            {/* User - File Upload */}
+            {isUser && msg.kind === 'upload' && (
+              <div className="bg-primary text-primary-foreground rounded-2xl rounded-tr-none p-2 shadow-sm break-words self-end">
+                {msg.previewUrl ? (
+                  <img
+                    src={msg.previewUrl}
+                    alt={msg.filename}
+                    className="rounded-lg object-cover max-w-full h-auto max-h-48"
+                  />
+                ) : (
+                  <div className="flex items-center gap-2 px-2 py-1 bg-primary-foreground/10 rounded-lg">
+                    <FileText className="h-5 w-5 shrink-0" />
+                    <span className="text-xs break-all line-clamp-1">{msg.filename}</span>
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* User - Voice message */}
+            {isUser && msg.kind === 'voice' && (
+              <div className="bg-primary text-primary-foreground rounded-2xl rounded-tr-none p-3 shadow-sm self-end">
+                <div className="flex items-center gap-2 mb-1.5">
+                  <Mic className="h-4 w-4 text-primary-foreground/75" />
+                  <span className="text-xs font-medium">Voice message · {msg.durationSec}s</span>
+                </div>
+                <audio controls src={msg.audioUrl} className="h-8 max-w-[220px]" />
+              </div>
+            )}
+
+            {/* Assistant - Voice note */}
+            {!isUser && msg.kind === 'voice' && (
+              <div className="bg-muted text-muted-foreground rounded-2xl rounded-tl-none p-3 shadow-sm self-start">
+                <div className="flex items-center gap-2 mb-1.5 text-foreground">
+                  <Mic className="h-4 w-4 text-emerald-500" />
+                  <span className="text-xs font-medium">Voice note · {msg.durationSec}s</span>
+                </div>
+                <audio controls src={msg.audioUrl} className="h-8 max-w-[220px]" />
+              </div>
+            )}
+
+            {/* Assistant - Text, transcript, or error */}
+            {!isUser && (msg.kind === 'text' || msg.kind === 'transcript' || msg.kind === 'error') && (
+              <div className={`rounded-2xl rounded-tl-none px-4 py-2.5 text-sm shadow-sm break-words self-start ${
+                msg.kind === 'error' ? 'bg-red-500/10 border border-red-500/20 text-red-600 dark:text-red-400' : 'bg-muted text-foreground'
+              }`}>
+                <div className="flex items-start gap-2 justify-between">
+                  <div className="flex-1">
+                    {msg.kind === 'transcript' ? (
+                      <span className="italic text-muted-foreground">🎙️ Transcribed: &ldquo;{msg.text}&rdquo;</span>
+                    ) : (
+                      <span>{msg.text}</span>
+                    )}
+                  </div>
+                  {msg.kind === 'text' && (
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className="h-6 w-6 shrink-0 text-muted-foreground hover:text-foreground"
+                      onClick={() => speakText(msg.text)}
+                      title="Speak message"
+                    >
+                      <Volume2 className="h-3.5 w-3.5" />
+                    </Button>
+                  )}
+                </div>
+              </div>
+            )}
+
+            {/* Assistant - Document Card */}
+            {!isUser && msg.kind === 'document' && (
+              <Card className="self-start overflow-hidden w-full max-w-[290px] border border-border/80 shadow-sm bg-card">
+                <CardHeader className="p-3 pb-2 flex flex-col gap-2">
+                  {msg.mimeType.startsWith('image/') && (
+                    <img
+                      src={msg.downloadUrl}
+                      alt={msg.filename}
+                      className="rounded-md object-cover max-w-full h-auto max-h-40 mb-1"
                     />
-                  </HStack>
-                  <Button label="Start new chat" size="sm" variant="secondary" onClick={startNewChat} />
-                </>
-              )}
+                  )}
+                  <div className="flex items-start gap-2.5">
+                    <div className="h-9 w-9 shrink-0 rounded-lg bg-emerald-500/10 flex items-center justify-center text-emerald-500">
+                      {msg.mimeType.startsWith('image/') ? <ImageIcon className="h-5 w-5" /> : <FileText className="h-5 w-5" />}
+                    </div>
+                    <div className="min-w-0">
+                      <h4 className="text-xs font-semibold text-foreground line-clamp-1 break-all">
+                        {msg.filename}
+                      </h4>
+                      <p className="text-[10px] text-muted-foreground mt-0.5 line-clamp-2">
+                        {msg.caption}
+                      </p>
+                    </div>
+                  </div>
+                </CardHeader>
+                <CardContent className="p-3 pt-0 flex gap-2">
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="w-full h-8 text-xs font-medium gap-1.5"
+                    onClick={() => window.open(msg.downloadUrl, '_blank')}
+                  >
+                    <Download className="h-3.5 w-3.5" />
+                    Download
+                  </Button>
+                </CardContent>
+              </Card>
+            )}
+          </div>
 
-              {messages.length > 0 && (
-                <IconButton
-                  label="Clear chat history"
-                  icon={<Icon icon={TrashIcon} />}
-                  variant="ghost"
-                  size="sm"
-                  onClick={clearChatHistory}
-                />
-              )}
+          <MessageFooter className={`flex items-center gap-1 mt-1 ${isUser ? 'self-end justify-end' : 'self-start justify-start'}`}>
+            {isUser && 'status' in msg && getStatusIcon(msg.status)}
+          </MessageFooter>
+        </MessageContent>
+      </Message>
+    );
+  }
 
-              {currentUser ? (
-                <Button
-                  label={currentUser.name || 'Profile'}
-                  size="sm"
-                  variant="ghost"
-                  icon={<Icon icon={UserIcon} />}
-                  onClick={() => router.push('/profile')}
-                />
-              ) : (
-                <Button
-                  label="Sign in"
-                  size="sm"
-                  variant="primary"
-                  icon={<Icon icon={UserIcon} />}
-                  onClick={() => router.push('/login')}
-                />
-              )}
+  if (!mounted) return null;
 
-              <ThemeToggle size="sm" />
-            </HStack>
-          }
-        />
-      }
-    >
-      <VStack height="100%" gap={0}>
-        {isMobile && isMobileSettingsOpen && (
-          <Card variant="muted" padding={4} width="100%">
-            <VStack gap={3}>
-              <Text type="body" weight="medium" size="sm">
-                Simulation Number
-              </Text>
+  return (
+    <div className="flex h-screen w-screen overflow-hidden bg-background text-foreground">
+      {/* Sidebar - Desktop Layout */}
+      <aside className="hidden md:flex flex-col w-[350px] shrink-0 border-r border-border bg-muted/30">
+        {/* Sidebar Header */}
+        <div className="p-4 border-b border-border flex items-center justify-between bg-card">
+          <div className="flex items-center gap-2">
+            <MessageSquare className="h-5 w-5 text-emerald-500" />
+            <h1 className="font-bold text-base">Magic Vault Simulator</h1>
+          </div>
+          <ThemeToggle />
+        </div>
+
+        {/* Sidebar Scrollable Panel */}
+        <div className="flex-1 overflow-y-auto p-4 space-y-6">
+          <Card className="border-border/60">
+            <CardHeader className="p-4 pb-2">
+              <CardTitle className="text-sm font-semibold">Simulated User</CardTitle>
+              <CardDescription className="text-xs">Configure the phone number for WhatsApp message simulation.</CardDescription>
+            </CardHeader>
+            <CardContent className="p-4 pt-0 space-y-4">
               <PhoneInput
                 countryCode={countryCode}
                 onCountryCodeChange={setCountryCode}
                 localNumber={localNumber}
                 onLocalNumberChange={setLocalNumber}
-                size="md"
+                isRequired
               />
-              <HStack justify="end" gap={2} wrap="wrap">
-                {messages.length > 0 && (
-                  <Button
-                    label="Clear history"
-                    size="sm"
-                    variant="ghost"
-                    icon={<Icon icon={TrashIcon} />}
-                    onClick={clearChatHistory}
-                  />
+              <Button onClick={startNewChat} className="w-full gap-1.5 h-9 text-xs">
+                <Plus className="h-3.5 w-3.5" /> Start New Chat
+              </Button>
+            </CardContent>
+          </Card>
+
+          {/* Quick Stats or Actions */}
+          <div className="space-y-2">
+            <h2 className="text-xs font-semibold text-muted-foreground uppercase px-1">Actions</h2>
+            <div className="flex flex-col gap-1.5">
+              {messages.length > 0 && (
+                <Button variant="outline" onClick={clearChatHistory} className="w-full justify-start text-xs h-9 gap-2">
+                  <Trash2 className="h-4 w-4 text-red-500" /> Clear Chat History
+                </Button>
+              )}
+              {currentUser ? (
+                <Button variant="outline" onClick={() => router.push('/profile')} className="w-full justify-start text-xs h-9 gap-2">
+                  <UserIcon className="h-4 w-4" /> {currentUser.name || 'View Profile'}
+                </Button>
+              ) : (
+                <Button variant="default" onClick={() => router.push('/login')} className="w-full justify-start text-xs h-9 gap-2">
+                  <UserIcon className="h-4 w-4" /> Sign In
+                </Button>
+              )}
+              <Button variant="outline" onClick={() => router.push('/documents')} className="w-full justify-start text-xs h-9 gap-2">
+                <FileText className="h-4 w-4" /> View Vault Documents
+              </Button>
+            </div>
+          </div>
+        </div>
+
+        {/* Sidebar Footer */}
+        {currentUser && (
+          <div className="p-4 border-t border-border bg-card flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <Avatar className="size-8">
+                <AvatarFallback className="bg-primary text-primary-foreground text-xs font-bold">
+                  {(currentUser.name || 'U')[0].toUpperCase()}
+                </AvatarFallback>
+              </Avatar>
+              <div className="min-w-0">
+                <p className="text-xs font-semibold truncate leading-tight">{currentUser.name}</p>
+                <p className="text-[10px] text-muted-foreground truncate">{currentUser.whatsappNumber}</p>
+              </div>
+            </div>
+          </div>
+        )}
+      </aside>
+
+      {/* Main Chat Interface */}
+      <main className="flex-1 flex flex-col h-full overflow-hidden bg-card/10 relative">
+        {/* Top Navbar - Responsive */}
+        <header className="h-14 border-b border-border bg-card flex items-center justify-between px-4 shrink-0 z-10 shadow-sm">
+          {/* Logo / Chat Recipient */}
+          <div className="flex items-center gap-2.5">
+            <Avatar className="size-9 bg-emerald-500 text-white flex items-center justify-center font-bold">
+              <AvatarFallback className="bg-emerald-500 text-white font-bold">MV</AvatarFallback>
+            </Avatar>
+            <div>
+              <h3 className="font-semibold text-sm leading-tight">Magic Vault</h3>
+              <p className="text-[10px] text-emerald-500 font-medium">Active Simulation: {whatsappNumber}</p>
+            </div>
+          </div>
+
+          {/* Quick Header Actions */}
+          <div className="flex items-center gap-1 md:gap-2">
+            <Button
+              variant="ghost"
+              size="icon"
+              className="md:hidden h-8 w-8 text-muted-foreground"
+              onClick={() => setIsMobileSettingsOpen(true)}
+              title="Simulation Settings"
+            >
+              <Settings className="h-4 w-4" />
+            </Button>
+            <ThemeToggle className="h-8 w-8" />
+            <Button
+              variant="ghost"
+              size="icon"
+              className="h-8 w-8 text-muted-foreground"
+              onClick={() => router.push('/documents')}
+              title="Vault Documents"
+            >
+              <FileText className="h-4 w-4" />
+            </Button>
+            {currentUser ? (
+              <Button
+                variant="ghost"
+                size="icon"
+                className="h-8 w-8 text-muted-foreground"
+                onClick={() => router.push('/profile')}
+                title="Profile"
+              >
+                <UserIcon className="h-4 w-4" />
+              </Button>
+            ) : (
+              <Button
+                variant="ghost"
+                className="text-xs h-8 px-2"
+                onClick={() => router.push('/login')}
+              >
+                Sign In
+              </Button>
+            )}
+          </div>
+        </header>
+
+        {/* Chat Scroll Viewport */}
+        <div className="flex-1 min-h-0 relative bg-muted/10">
+          <MessageScrollerProvider>
+            <MessageScroller className="size-full">
+              <MessageScrollerViewport className="py-4">
+                {messages.length === 0 ? (
+                  <div className="h-full flex flex-col items-center justify-center p-8 text-center max-w-sm mx-auto">
+                    <div className="h-12 w-12 rounded-full bg-emerald-500/10 flex items-center justify-center text-emerald-600 dark:text-emerald-400 mb-4 animate-bounce">
+                      <MessageSquare className="h-6 w-6" />
+                    </div>
+                    <h3 className="font-bold text-base mb-1 text-foreground">No messages yet</h3>
+                    <p className="text-xs text-muted-foreground leading-relaxed">
+                      Testing simulation as <span className="font-semibold text-foreground">{whatsappNumber}</span>. Send a text message, upload a document, or record a voice note below to test your vault.
+                    </p>
+                  </div>
+                ) : (
+                  <MessageScrollerContent>
+                    {messages.map((msg) => (
+                      <MessageScrollerItem key={msg.id}>
+                        {renderMessage(msg)}
+                      </MessageScrollerItem>
+                    ))}
+                  </MessageScrollerContent>
                 )}
-                <Button
-                  label="Start new chat"
-                  size="sm"
-                  variant="primary"
-                  onClick={() => {
-                    startNewChat();
-                    setIsMobileSettingsOpen(false);
+              </MessageScrollerViewport>
+              <MessageScrollerButton direction="end" className="shadow-lg border border-border" />
+            </MessageScroller>
+          </MessageScrollerProvider>
+        </div>
+
+        {/* Composer / Chat Input Section */}
+        <footer className="p-3 md:p-4 border-t border-border bg-card shrink-0">
+          <div className="max-w-3xl mx-auto flex items-center gap-2">
+            {/* Attachments Trigger */}
+            <Button
+              variant="ghost"
+              size="icon"
+              className="h-10 w-10 shrink-0 text-muted-foreground hover:text-foreground rounded-full hover:bg-muted"
+              onClick={() => fileInputRef.current?.click()}
+              title="Attach Document"
+            >
+              <Paperclip className="h-5 w-5" />
+            </Button>
+
+            {/* Input Form Box */}
+            <div className="flex-1 relative flex items-center rounded-2xl border border-input bg-muted/30 px-3 py-1.5 focus-within:border-ring focus-within:ring-1 focus-within:ring-ring">
+              {isRecording ? (
+                <div className="flex-1 flex items-center justify-between text-xs text-red-500">
+                  <div className="flex items-center gap-2">
+                    <span className="relative flex h-2 w-2">
+                      <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-red-400 opacity-75"></span>
+                      <span className="relative inline-flex rounded-full h-2 w-2 bg-red-500"></span>
+                    </span>
+                    <span className="font-medium animate-pulse">Recording Audio...</span>
+                  </div>
+                  <span className="font-mono bg-red-50 dark:bg-red-950/20 px-2 py-0.5 rounded text-[11px] font-semibold">{recordSeconds}s</span>
+                </div>
+              ) : (
+                <textarea
+                  value={composerValue}
+                  onChange={(e) => setComposerValue(e.target.value)}
+                  placeholder="Type a message..."
+                  className="flex-1 text-sm bg-transparent border-0 focus:outline-none focus:ring-0 resize-none h-6 py-0.5 font-normal placeholder-muted-foreground w-full align-middle leading-tight"
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter' && !e.shiftKey) {
+                      e.preventDefault();
+                      void handleSubmitText();
+                    }
                   }}
                 />
-              </HStack>
-            </VStack>
-          </Card>
-        )}
-        <ChatLayout
-            composer={
-              <ChatComposer
-                value={composerValue}
-                onChange={setComposerValue}
-                onSubmit={handleSubmitText}
-                placeholder="Message Magic Vault..."
-                headerActions={
-                  <IconButton
-                    label="Attach a document"
-                    icon={<Icon icon={PaperClipIcon} />}
+              )}
+            </div>
+
+            {/* Action Triggers: Recording / Send */}
+            <div className="flex items-center gap-1 shrink-0">
+              {isRecording ? (
+                <Button
+                  variant="destructive"
+                  size="icon"
+                  className="h-10 w-10 rounded-full"
+                  onClick={stopRecording}
+                  title="Stop and Send"
+                >
+                  <Square className="h-4.5 w-4.5" />
+                </Button>
+              ) : (
+                <>
+                  <Button
                     variant="ghost"
-                    size="sm"
-                    onClick={() => fileInputRef.current?.click()}
-                  />
-                }
-                sendActions={
-                  isRecording ? (
-                    <HStack gap={2} vAlign="center">
-                      <Text type="supporting">{recordSeconds}s</Text>
-                      <IconButton
-                        label="Stop recording"
-                        icon={<Icon icon="stop" />}
-                        variant="destructive"
-                        size="sm"
-                        onClick={stopRecording}
-                      />
-                    </HStack>
-                  ) : (
-                    <IconButton
-                      label="Record a voice message"
-                      icon={<Icon icon="microphone" />}
-                      variant="ghost"
-                      size="sm"
-                      onClick={startRecording}
-                    />
-                  )
-                }
-              />
-            }
-          >
-            <ChatMessageList
-              emptyState={
-                <EmptyState
-                  title="No messages yet"
-                  description={`Testing as ${whatsappNumber}. Send a text query, upload a document, or record a voice note.`}
-                />
-              }
-            >
-              {messages.map(renderMessage)}
-            </ChatMessageList>
-          </ChatLayout>
-        </VStack>
+                    size="icon"
+                    className="h-10 w-10 text-muted-foreground hover:text-foreground rounded-full hover:bg-muted"
+                    onClick={startRecording}
+                    title="Record voice note"
+                  >
+                    <Mic className="h-5 w-5" />
+                  </Button>
+                  <Button
+                    onClick={handleSubmitText}
+                    size="icon"
+                    className="h-10 w-10 rounded-full bg-emerald-500 text-white hover:bg-emerald-600"
+                    disabled={!composerValue.trim()}
+                    title="Send message"
+                  >
+                    <Send className="h-4 w-4" />
+                  </Button>
+                </>
+              )}
+            </div>
+          </div>
+        </footer>
+
+        {/* Secret input for file uploads */}
         <input
           ref={fileInputRef}
           type="file"
           accept={SUPPORTED_UPLOAD_ACCEPT}
-          style={{ display: 'none' }}
+          className="hidden"
           onChange={handleFileChange}
         />
-    </AppShell>
+
+        {/* Mobile Settings Drawer/Overlay */}
+        {isMobileSettingsOpen && (
+          <div className="absolute inset-0 bg-background/80 backdrop-blur-sm z-50 flex items-end sm:items-center justify-center p-4">
+            <Card className="w-full max-w-sm shadow-xl border-border/80 bg-card">
+              <CardHeader className="p-4 flex flex-row items-center justify-between border-b border-border/50">
+                <div>
+                  <CardTitle className="text-sm font-semibold">Simulation Settings</CardTitle>
+                  <CardDescription className="text-[10px]">Change WhatsApp simulated user details.</CardDescription>
+                </div>
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className="h-7 w-7 rounded-full text-muted-foreground"
+                  onClick={() => setIsMobileSettingsOpen(false)}
+                >
+                  <X className="h-4 w-4" />
+                </Button>
+              </CardHeader>
+              <CardContent className="p-4 space-y-4">
+                <PhoneInput
+                  countryCode={countryCode}
+                  onCountryCodeChange={setCountryCode}
+                  localNumber={localNumber}
+                  onLocalNumberChange={setLocalNumber}
+                  isRequired
+                />
+                <div className="flex gap-2">
+                  {messages.length > 0 && (
+                    <Button variant="outline" size="sm" onClick={() => { clearChatHistory(); setIsMobileSettingsOpen(false); }} className="flex-1 h-9 text-xs text-red-500 gap-1.5">
+                      <Trash2 className="h-3.5 w-3.5" /> Clear History
+                    </Button>
+                  )}
+                  <Button size="sm" onClick={() => { startNewChat(); setIsMobileSettingsOpen(false); }} className="flex-1 h-9 text-xs">
+                    Apply & Start
+                  </Button>
+                </div>
+              </CardContent>
+            </Card>
+          </div>
+        )}
+      </main>
+    </div>
   );
 }

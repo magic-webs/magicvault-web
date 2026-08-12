@@ -2,34 +2,27 @@
 
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { AppShell } from '@astryxdesign/core/AppShell';
-import { TopNav, TopNavHeading } from '@astryxdesign/core/TopNav';
-import { NavIcon } from '@astryxdesign/core/NavIcon';
-import { VStack } from '@astryxdesign/core/VStack';
-import { HStack } from '@astryxdesign/core/HStack';
-import { Text, Heading } from '@astryxdesign/core/Text';
-import { Card } from '@astryxdesign/core/Card';
-import { TextInput } from '@astryxdesign/core/TextInput';
-import { Badge } from '@astryxdesign/core/Badge';
-import { StatusDot } from '@astryxdesign/core/StatusDot';
-import { Button } from '@astryxdesign/core/Button';
-import { Icon } from '@astryxdesign/core/Icon';
-import { EmptyState } from '@astryxdesign/core/EmptyState';
-import { Spinner } from '@astryxdesign/core/Spinner';
-import { Banner } from '@astryxdesign/core/Banner';
-import { useToast } from '@astryxdesign/core/Toast';
+import { Button } from "@/components/ui/button";
+import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
+import { Input } from "@/components/ui/input";
+import { Badge } from "@/components/ui/badge";
+import { Separator } from "@/components/ui/separator";
 import {
-  ChatBubbleLeftRightIcon,
-  UserIcon,
-  DocumentTextIcon,
-  PhotoIcon,
-  ArrowDownTrayIcon,
-  MagnifyingGlassIcon,
-  ArrowPathIcon,
-} from '@heroicons/react/24/outline';
+  MessageSquare,
+  User as UserIcon,
+  FileText,
+  Image as ImageIcon,
+  Download,
+  Search,
+  RefreshCw,
+  Loader2,
+  AlertCircle,
+  HelpCircle
+} from "lucide-react";
 import { listDocuments, getDownloadLink, type VaultDocument } from '@/lib/documents-api';
 import { getStoredUser } from '@/lib/auth-api';
 import { ThemeToggle } from '@/components/theme-provider';
+import { toast } from "sonner";
 
 function formatFileSize(bytes: number): string {
   if (bytes < 1024) return `${bytes} B`;
@@ -51,7 +44,6 @@ function formatDate(iso: string): string {
 
 export default function DocumentsPage() {
   const router = useRouter();
-  const toast = useToast();
   const [documents, setDocuments] = useState<VaultDocument[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState('');
@@ -86,9 +78,9 @@ export default function DocumentsPage() {
     try {
       const url = await getDownloadLink(doc.id);
       window.open(url, '_blank');
-      toast({ body: `Downloading ${doc.filename}...`, type: 'info' });
+      toast.info(`Downloading ${doc.filename}...`);
     } catch (err) {
-      toast({ body: err instanceof Error ? err.message : 'Could not download document', type: 'error' });
+      toast.error(err instanceof Error ? err.message : 'Could not download document');
     } finally {
       setDownloadingId(null);
     }
@@ -110,174 +102,222 @@ export default function DocumentsPage() {
   });
 
   return (
-    <AppShell
-      height="fill"
-      contentPadding={0}
-      topNav={
-        <TopNav
-          label="Magic Vault Documents"
-          heading={
-            <TopNavHeading
-              heading="Magic Vault"
-              logo={<NavIcon icon={<ChatBubbleLeftRightIcon />} />}
-              onClick={() => router.push('/')}
-            />
-          }
-          endContent={
-            <HStack gap={2} vAlign="center" wrap="wrap">
-              <Button
-                label="Simulator"
-                size="sm"
-                variant="secondary"
-                icon={<Icon icon={ChatBubbleLeftRightIcon} />}
-                onClick={() => router.push('/')}
-              />
-              <Button
-                label="Profile"
-                size="sm"
-                variant="ghost"
-                icon={<Icon icon={UserIcon} />}
-                onClick={() => router.push('/profile')}
-              />
-              <ThemeToggle size="sm" />
-            </HStack>
-          }
-        />
-      }
-    >
-      <div className="w-full max-w-5xl mx-auto p-4 sm:p-6 md:p-8 space-y-6">
-        <VStack gap={2}>
-          <HStack justify="between" vAlign="center" wrap="wrap">
-            <VStack gap={1}>
-              <Heading level={2}>Saved Vault Documents</Heading>
-              <Text type="body" color="secondary" size="sm">
-                View, filter, and download all documents stored in your vault
-              </Text>
-            </VStack>
-            <Button
-              label="Refresh"
-              size="sm"
-              variant="secondary"
-              icon={<Icon icon={ArrowPathIcon} />}
-              onClick={loadDocuments}
-              isLoading={isLoading}
-            />
-          </HStack>
-        </VStack>
+    <div className="min-h-screen w-screen flex flex-col bg-background">
+      {/* Top Navbar */}
+      <header className="h-14 border-b border-border bg-card flex items-center justify-between px-4 shrink-0 shadow-sm">
+        <div className="flex items-center gap-2.5 cursor-pointer" onClick={() => router.push('/')}>
+          <div className="h-8 w-8 rounded-lg bg-emerald-500/10 flex items-center justify-center text-emerald-500">
+            <MessageSquare className="h-5 w-5" />
+          </div>
+          <h3 className="font-semibold text-sm">Magic Vault</h3>
+        </div>
 
-        {error && <Banner status="error" title={error} container="card" />}
+        <div className="flex items-center gap-1.5 md:gap-2">
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={() => router.push('/')}
+            className="text-xs h-8 gap-1.5"
+          >
+            <MessageSquare className="h-3.5 w-3.5" />
+            Simulator
+          </Button>
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={() => router.push('/profile')}
+            className="text-xs h-8 gap-1.5"
+          >
+            <UserIcon className="h-3.5 w-3.5" />
+            Profile
+          </Button>
+          <ThemeToggle />
+        </div>
+      </header>
 
-        <VStack gap={4}>
-          <HStack gap={3} vAlign="center" wrap="wrap">
-            <div className="flex-1 min-w-[240px]">
-              <TextInput
-                label="Search documents"
-                isLabelHidden
+      {/* Main Content Area */}
+      <div className="flex-1 w-full max-w-5xl mx-auto p-4 sm:p-6 md:p-8 space-y-6">
+        
+        {/* Dashboard Title Panel */}
+        <div className="flex flex-col sm:flex-row justify-between sm:items-center gap-3">
+          <div className="space-y-1">
+            <h1 className="text-xl sm:text-2xl font-bold tracking-tight">Saved Vault Documents</h1>
+            <p className="text-xs text-muted-foreground">
+              View, filter, and download all documents stored in your vault
+            </p>
+          </div>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={loadDocuments}
+            disabled={isLoading}
+            className="w-full sm:w-auto h-8 text-xs gap-1.5"
+          >
+            {isLoading ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <RefreshCw className="h-3.5 w-3.5" />}
+            Refresh
+          </Button>
+        </div>
+
+        {/* Global Error Banner */}
+        {error && (
+          <div className="flex items-center gap-2 text-sm font-medium text-red-600 bg-red-500/10 border border-red-500/20 p-4 rounded-lg">
+            <AlertCircle className="h-5 w-5 shrink-0" />
+            <span>{error}</span>
+          </div>
+        )}
+
+        <div className="space-y-4">
+          {/* Filters Section */}
+          <div className="flex flex-col md:flex-row gap-3 items-stretch md:items-center justify-between">
+            {/* Search Input Box */}
+            <div className="relative flex-1 max-w-md">
+              <Search className="absolute left-3 top-2.5 h-4 w-4 text-muted-foreground" />
+              <Input
                 placeholder="Search by title, filename, or summary..."
                 value={searchQuery}
-                onChange={setSearchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                className="pl-9 h-9 text-xs"
               />
             </div>
+            
+            {/* Category Pills */}
             {categories.length > 1 && (
-              <HStack gap={1.5} wrap="wrap" vAlign="center">
-                <Text type="supporting">Category:</Text>
-                {categories.map((cat) => (
-                  <Button
-                    key={cat}
-                    label={cat.charAt(0).toUpperCase() + cat.slice(1)}
-                    size="sm"
-                    variant={selectedCategory === cat ? 'primary' : 'ghost'}
-                    onClick={() => setSelectedCategory(cat)}
-                  />
-                ))}
-              </HStack>
+              <div className="flex items-center gap-1.5 overflow-x-auto pb-1 md:pb-0 scrollbar-none">
+                <span className="text-xs font-semibold text-muted-foreground mr-1 uppercase">Category:</span>
+                <div className="flex gap-1">
+                  {categories.map((cat) => (
+                    <Button
+                      key={cat}
+                      variant={selectedCategory === cat ? 'default' : 'ghost'}
+                      size="sm"
+                      onClick={() => setSelectedCategory(cat)}
+                      className="text-xs h-7 px-2.5"
+                    >
+                      {cat.charAt(0).toUpperCase() + cat.slice(1)}
+                    </Button>
+                  ))}
+                </div>
+              </div>
             )}
-          </HStack>
+          </div>
 
+          {/* Documents Content list */}
           {isLoading ? (
-            <Card padding={8} width="100%">
-              <VStack gap={3} hAlign="center">
-                <Spinner size="lg" />
-                <Text type="body" color="secondary">
-                  Loading vault documents...
-                </Text>
-              </VStack>
+            <Card className="border-border/60">
+              <CardContent className="p-12 flex flex-col items-center justify-center">
+                <Loader2 className="h-6 w-6 animate-spin text-muted-foreground mb-2" />
+                <p className="text-sm text-muted-foreground">Loading vault documents...</p>
+              </CardContent>
             </Card>
           ) : filteredDocuments.length === 0 ? (
-            <Card padding={8} width="100%">
-              <EmptyState
-                title={searchQuery || selectedCategory !== 'all' ? 'No matching documents' : 'No documents saved yet'}
-                description={
-                  searchQuery || selectedCategory !== 'all'
+            <Card className="border-border/60">
+              <CardContent className="p-12 flex flex-col items-center justify-center text-center max-w-sm mx-auto">
+                <div className="h-10 w-10 rounded-full bg-muted flex items-center justify-center text-muted-foreground mb-3">
+                  <HelpCircle className="h-5 w-5" />
+                </div>
+                <CardTitle className="text-sm font-semibold mb-1">
+                  {searchQuery || selectedCategory !== 'all' ? 'No matching documents' : 'No documents saved yet'}
+                </CardTitle>
+                <CardDescription className="text-xs leading-relaxed mb-4">
+                  {searchQuery || selectedCategory !== 'all'
                     ? 'Try clearing your search filters or category selection.'
-                    : 'Upload a document or photo in the WhatsApp simulator to store it securely in your Magic Vault.'
-                }
-                actions={
-                  <Button
-                    label="Launch WhatsApp Simulator"
-                    variant="primary"
-                    icon={<Icon icon={ChatBubbleLeftRightIcon} />}
-                    onClick={() => router.push('/')}
-                  />
-                }
-              />
+                    : 'Upload a document or photo in the WhatsApp simulator to store it securely in your Magic Vault.'}
+                </CardDescription>
+                <Button
+                  onClick={() => router.push('/')}
+                  className="w-full text-xs h-9 bg-emerald-500 hover:bg-emerald-600 text-white border-0 gap-1.5"
+                >
+                  <MessageSquare className="h-4 w-4" />
+                  Launch WhatsApp Simulator
+                </Button>
+              </CardContent>
             </Card>
           ) : (
-            <VStack gap={3} width="100%">
-              <Text type="supporting" weight="bold">
+            <div className="space-y-3">
+              <div className="text-xs font-semibold text-muted-foreground tracking-wider uppercase px-1">
                 {filteredDocuments.length} {filteredDocuments.length === 1 ? 'DOCUMENT' : 'DOCUMENTS'}
-              </Text>
+              </div>
 
-              {filteredDocuments.map((doc) => {
-                const isImage = doc.mimeType.startsWith('image/');
-                const isReady = doc.status === 'ready';
-                const isFailed = doc.status === 'failed';
+              {/* List of Document Cards */}
+              <div className="grid gap-3">
+                {filteredDocuments.map((doc) => {
+                  const isImage = doc.mimeType.startsWith('image/');
+                  const isReady = doc.status === 'ready';
+                  const isFailed = doc.status === 'failed';
 
-                return (
-                  <Card key={doc.id} padding={4} width="100%">
-                    <HStack gap={4} vAlign="center" justify="between" wrap="wrap">
-                      <HStack gap={3} vAlign="center" style={{ flex: '1 1 300px' }}>
-                        <Icon icon={isImage ? PhotoIcon : DocumentTextIcon} size="lg" color="accent" />
-                        <VStack gap={1} style={{ flex: 1 }}>
-                          <HStack gap={2} vAlign="center" wrap="wrap">
-                            <Text type="body" weight="bold" size="lg">
-                              {doc.title || doc.filename}
-                            </Text>
-                            <Badge label={doc.category} variant="neutral" />
-                            <StatusDot
-                              variant={isReady ? 'success' : isFailed ? 'error' : 'warning'}
-                              label={doc.status}
-                            />
-                          </HStack>
-                          <Text type="supporting" color="secondary" size="sm">
-                            {doc.filename} · {formatFileSize(doc.size)} · Uploaded {formatDate(doc.createdAt)}
-                          </Text>
-                          {doc.summary && (
-                            <Text type="body" size="sm" color="secondary" maxLines={2}>
-                              {doc.summary}
-                            </Text>
-                          )}
-                        </VStack>
-                      </HStack>
+                  return (
+                    <Card key={doc.id} className="border-border/80 hover:border-border transition-colors">
+                      <CardContent className="p-4 sm:p-5 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                        {/* Doc Info Section */}
+                        <div className="flex items-start gap-3.5 min-w-0 flex-1">
+                          <div className="h-10 w-10 rounded-lg bg-emerald-500/10 flex items-center justify-center text-emerald-500 shrink-0 mt-0.5">
+                            {isImage ? <ImageIcon className="h-5 w-5" /> : <FileText className="h-5 w-5" />}
+                          </div>
+                          
+                          <div className="min-w-0 space-y-1.5">
+                            <div className="flex flex-wrap items-center gap-1.5">
+                              <h3 className="font-semibold text-sm sm:text-base leading-none text-foreground break-all line-clamp-1">
+                                {doc.title || doc.filename}
+                              </h3>
+                              <Badge variant="secondary" className="text-[10px] py-0 px-2 h-4 shrink-0 font-medium">
+                                {doc.category}
+                              </Badge>
+                              <Badge
+                                variant="outline"
+                                className={`text-[10px] py-0 px-2 h-4 shrink-0 font-medium gap-1 ${
+                                  isReady
+                                    ? 'bg-emerald-500/10 border-emerald-500/20 text-emerald-600 dark:text-emerald-400'
+                                    : isFailed
+                                    ? 'bg-red-500/10 border-red-500/20 text-red-600 dark:text-red-400'
+                                    : 'bg-amber-500/10 border-amber-500/20 text-amber-600 dark:text-amber-400'
+                                }`}
+                              >
+                                <span className={`h-1.5 w-1.5 rounded-full shrink-0 ${
+                                  isReady ? 'bg-emerald-500' : isFailed ? 'bg-red-500' : 'bg-amber-500'
+                                }`}></span>
+                                {doc.status}
+                              </Badge>
+                            </div>
+                            
+                            <p className="text-[10px] text-muted-foreground">
+                              {doc.filename} · {formatFileSize(doc.size)} · Uploaded {formatDate(doc.createdAt)}
+                            </p>
+                            
+                            {doc.summary && (
+                              <p className="text-xs text-muted-foreground line-clamp-2 leading-relaxed">
+                                {doc.summary}
+                              </p>
+                            )}
+                          </div>
+                        </div>
 
-                      <HStack gap={2} vAlign="center">
-                        <Button
-                          label="Download"
-                          size="sm"
-                          variant="secondary"
-                          icon={<Icon icon={ArrowDownTrayIcon} />}
-                          isLoading={downloadingId === doc.id}
-                          onClick={() => handleDownload(doc)}
-                        />
-                      </HStack>
-                    </HStack>
-                  </Card>
-                );
-              })}
-            </VStack>
+                        {/* Actions section */}
+                        <div className="shrink-0 flex sm:flex-col items-stretch justify-end">
+                          <Button
+                            variant="secondary"
+                            size="sm"
+                            disabled={downloadingId === doc.id}
+                            onClick={() => handleDownload(doc)}
+                            className="h-8.5 text-xs font-semibold gap-1.5 px-3 w-full sm:w-[110px]"
+                          >
+                            {downloadingId === doc.id ? (
+                              <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                            ) : (
+                              <Download className="h-3.5 w-3.5" />
+                            )}
+                            Download
+                          </Button>
+                        </div>
+                      </CardContent>
+                    </Card>
+                  );
+                })}
+              </div>
+            </div>
           )}
-        </VStack>
+        </div>
+
       </div>
-    </AppShell>
+    </div>
   );
 }

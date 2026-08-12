@@ -1,11 +1,8 @@
 'use client';
 
 import React, { createContext, useContext, useEffect, useState } from 'react';
-import { Theme } from '@astryxdesign/core/theme';
-import { neutralTheme } from '@astryxdesign/theme-neutral';
-import { IconButton } from '@astryxdesign/core/IconButton';
-import { Icon } from '@astryxdesign/core/Icon';
-import { SunIcon, MoonIcon } from '@heroicons/react/24/outline';
+import { Sun, Moon } from 'lucide-react';
+import { Button } from '@/components/ui/button';
 
 type ThemeMode = 'dark' | 'light';
 
@@ -30,15 +27,22 @@ export function AppThemeProvider({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     setMounted(true);
     const saved = localStorage.getItem(STORAGE_KEY) as ThemeMode | null;
-    if (saved === 'light' || saved === 'dark') {
-      setModeState(saved);
-    }
+    const initialMode = saved === 'light' || saved === 'dark' ? saved : 'dark';
+    setModeState(initialMode);
+    
+    // Apply theme class to documentElement
+    const root = window.document.documentElement;
+    root.classList.remove('light', 'dark');
+    root.classList.add(initialMode);
   }, []);
 
   function setMode(newMode: ThemeMode) {
     setModeState(newMode);
     if (typeof window !== 'undefined') {
       localStorage.setItem(STORAGE_KEY, newMode);
+      const root = window.document.documentElement;
+      root.classList.remove('light', 'dark');
+      root.classList.add(newMode);
     }
   }
 
@@ -48,9 +52,7 @@ export function AppThemeProvider({ children }: { children: React.ReactNode }) {
 
   return (
     <ThemeContext.Provider value={{ mode, toggleTheme, setMode }}>
-      <Theme theme={neutralTheme} mode={mounted ? mode : 'dark'}>
-        {children}
-      </Theme>
+      {children}
     </ThemeContext.Provider>
   );
 }
@@ -59,17 +61,20 @@ export function useAppTheme() {
   return useContext(ThemeContext);
 }
 
-export function ThemeToggle({ size = 'sm' }: { size?: 'sm' | 'md' | 'lg' }) {
+export function ThemeToggle({ className }: { className?: string }) {
   const { mode, toggleTheme } = useAppTheme();
   const isDark = mode === 'dark';
 
   return (
-    <IconButton
-      label={isDark ? 'Switch to Light mode' : 'Switch to Dark mode'}
-      icon={<Icon icon={isDark ? SunIcon : MoonIcon} />}
+    <Button
       variant="ghost"
-      size={size}
+      size="icon"
+      className={className}
       onClick={toggleTheme}
-    />
+      title={isDark ? 'Switch to Light mode' : 'Switch to Dark mode'}
+      aria-label={isDark ? 'Switch to Light mode' : 'Switch to Dark mode'}
+    >
+      {isDark ? <Sun className="h-5 w-5" /> : <Moon className="h-5 w-5" />}
+    </Button>
   );
 }

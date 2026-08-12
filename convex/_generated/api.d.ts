@@ -12,6 +12,7 @@ import type * as chat from "../chat.js";
 import type * as chat_db from "../chat_db.js";
 import type * as documents from "../documents.js";
 import type * as ingest from "../ingest.js";
+import type * as messages from "../messages.js";
 import type * as r2 from "../r2.js";
 import type * as users from "../users.js";
 
@@ -26,6 +27,7 @@ declare const fullApi: ApiFromModules<{
   chat_db: typeof chat_db;
   documents: typeof documents;
   ingest: typeof ingest;
+  messages: typeof messages;
   r2: typeof r2;
   users: typeof users;
 }>;

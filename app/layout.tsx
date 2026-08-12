@@ -16,6 +16,8 @@ export const metadata: Metadata = {
   description: "Test harness for the Magic Vault WhatsApp document assistant",
 };
 
+import { Toaster } from "@/components/ui/sonner";
+
 export default function RootLayout({
   children,
 }: Readonly<{
@@ -24,10 +26,13 @@ export default function RootLayout({
   return (
     <html
       lang="en"
-      className={cn("h-full", "antialiased", montserrat.variable, "font-sans", geist.variable)}
+      className={`${montserrat.variable} h-full antialiased`}
     >
       <body className="min-h-full flex flex-col">
-        <AppThemeProvider>{children}</AppThemeProvider>
+        <AppThemeProvider>
+          {children}
+          <Toaster />
+        </AppThemeProvider>
       </body>
     </html>
   );

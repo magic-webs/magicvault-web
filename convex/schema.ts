@@ -42,4 +42,19 @@ export default defineSchema({
       dimensions: 1536,
       filterFields: ["userId"],
     }),
+
+  messages: defineTable({
+    userId: v.id("users"),
+    sender: v.union(v.literal("user"), v.literal("assistant")),
+    kind: v.union(v.literal("text"), v.literal("voice"), v.literal("upload"), v.literal("document"), v.literal("transcript"), v.literal("error")),
+    text: v.optional(v.string()),
+    audioUrl: v.optional(v.string()),
+    durationSec: v.optional(v.number()),
+    filename: v.optional(v.string()),
+    mimeType: v.optional(v.string()),
+    downloadUrl: v.optional(v.string()),
+    previewUrl: v.optional(v.string()),
+    status: v.optional(v.union(v.literal("sending"), v.literal("sent"), v.literal("error"))),
+    timestamp: v.number(),
+  }).index("by_user", ["userId"]),
 });

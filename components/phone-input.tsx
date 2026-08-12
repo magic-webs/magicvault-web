@@ -1,8 +1,6 @@
 'use client';
 
-import { InputGroup } from '@astryxdesign/core/InputGroup';
-import { Selector } from '@astryxdesign/core/Selector';
-import { TextInput } from '@astryxdesign/core/TextInput';
+import { Input } from '@/components/ui/input';
 
 export const DEFAULT_COUNTRY_CODE = '+91';
 
@@ -38,25 +36,33 @@ export function PhoneInput({
   onCountryCodeChange,
   localNumber,
   onLocalNumberChange,
-  size = 'lg',
   isRequired,
 }: PhoneInputProps) {
   return (
-    <InputGroup label="Phone number" size={size} isRequired={isRequired}>
-      <Selector
-        label="Country code"
-        isLabelHidden
-        options={COUNTRY_CODES}
-        value={countryCode}
-        onChange={(value) => value && onCountryCodeChange(value)}
-      />
-      <TextInput
-        label="Phone number"
-        isLabelHidden
-        value={localNumber}
-        onChange={onLocalNumberChange}
-        placeholder="98765 43210"
-      />
-    </InputGroup>
+    <div className="flex flex-col gap-1.5 w-full">
+      <label className="text-sm font-medium text-foreground">
+        Phone number {isRequired && <span className="text-red-500">*</span>}
+      </label>
+      <div className="flex gap-2">
+        <select
+          value={countryCode}
+          onChange={(e) => onCountryCodeChange(e.target.value)}
+          className="flex h-10 w-28 rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
+        >
+          {COUNTRY_CODES.map((c) => (
+            <option key={c.value} value={c.value}>
+              {c.label}
+            </option>
+          ))}
+        </select>
+        <Input
+          type="tel"
+          value={localNumber}
+          onChange={(e) => onLocalNumberChange(e.target.value)}
+          placeholder="98765 43210"
+          className="flex-1"
+        />
+      </div>
+    </div>
   );
 }
