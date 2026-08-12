@@ -116,6 +116,7 @@ export function ChatSimulator() {
   const [isRecording, setIsRecording] = useState(false);
   const [recordSeconds, setRecordSeconds] = useState(0);
   const [isAiLoading, setIsAiLoading] = useState(false);
+  const [lightboxImage, setLightboxImage] = useState<{ src: string; alt: string } | null>(null);
 
   const messagesEndRef = useRef<HTMLDivElement | null>(null);
 
@@ -393,7 +394,6 @@ export function ChatSimulator() {
 
 
   function getStatusIcon(status: DeliveryStatus) {
-    if (status === 'sending') return <Loader2 className="h-3 w-3 animate-spin text-muted-foreground" />;
     if (status === 'error') return <span className="text-red-500 text-xs">⚠️</span>;
     return null;
   }
@@ -434,12 +434,17 @@ export function ChatSimulator() {
             {isUser && msg.kind === 'upload' && (
               <div className="bg-primary text-primary-foreground rounded-2xl rounded-tr-none p-2 shadow-sm break-words self-end">
                 {msg.mimeType?.startsWith('image/') && (msg.previewUrl || msg.downloadUrl) ? (
-                  <LoadingImage
-                    src={msg.previewUrl || msg.downloadUrl || ''}
-                    alt={msg.filename}
-                    className="rounded-lg object-cover max-w-full h-auto max-h-48"
-                    onLoadComplete={scrollToBottom}
-                  />
+                  <div
+                    className="cursor-zoom-in hover:opacity-90 transition-opacity"
+                    onClick={() => setLightboxImage({ src: msg.previewUrl || msg.downloadUrl || '', alt: msg.filename })}
+                  >
+                    <LoadingImage
+                      src={msg.previewUrl || msg.downloadUrl || ''}
+                      alt={msg.filename}
+                      className="rounded-lg object-cover max-w-full h-auto max-h-48"
+                      onLoadComplete={scrollToBottom}
+                    />
+                  </div>
                 ) : (
                   <div className="flex items-center gap-2 px-2 py-1 bg-primary-foreground/10 rounded-lg">
                     <FileText className="h-5 w-5 shrink-0" />
@@ -494,12 +499,17 @@ export function ChatSimulator() {
               <Card className="self-start overflow-hidden w-full max-w-[290px] border border-border/80 shadow-sm bg-card">
                 <CardHeader className="p-3 pb-2 flex flex-col gap-2">
                   {msg.mimeType.startsWith('image/') ? (
-                    <LoadingImage
-                      src={msg.downloadUrl}
-                      alt={msg.filename}
-                      className="rounded-md object-cover max-w-full h-auto max-h-40 mb-1"
-                      onLoadComplete={scrollToBottom}
-                    />
+                    <div
+                      className="cursor-zoom-in hover:opacity-90 transition-opacity"
+                      onClick={() => setLightboxImage({ src: msg.downloadUrl, alt: msg.filename })}
+                    >
+                      <LoadingImage
+                        src={msg.downloadUrl}
+                        alt={msg.filename}
+                        className="rounded-md object-cover max-w-full h-auto max-h-40 mb-1"
+                        onLoadComplete={scrollToBottom}
+                      />
+                    </div>
                   ) : (
                     <div className="flex items-start gap-2.5">
                       <div className="h-9 w-9 shrink-0 rounded-lg bg-emerald-500/10 flex items-center justify-center text-emerald-500">
@@ -739,6 +749,32 @@ export function ChatSimulator() {
         />
 
       </main>
+
+      {/* Lightbox / Image Popup Modal */}
+      {lightboxImage && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm p-4 cursor-zoom-out"
+          onClick={() => setLightboxImage(null)}
+        >
+          <div className="relative max-w-4xl max-h-[90vh] w-full flex items-center justify-center">
+            <button
+              className="absolute top-4 right-4 text-white hover:text-gray-300 bg-black/40 hover:bg-black/60 p-2 rounded-full transition-colors z-10"
+              onClick={(e) => {
+                e.stopPropagation();
+                setLightboxImage(null);
+              }}
+            >
+              <X className="h-6 w-6" />
+            </button>
+            <img
+              src={lightboxImage.src}
+              alt={lightboxImage.alt}
+              className="max-w-full max-h-[85vh] object-contain rounded-lg shadow-2xl transition-transform duration-200"
+              onClick={(e) => e.stopPropagation()}
+            />
+          </div>
+        </div>
+      )}
     </div>
   );
 }
