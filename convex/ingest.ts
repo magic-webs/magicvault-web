@@ -71,10 +71,9 @@ export const processDocument = internalAction({
       throw new Error("Missing AI_GATEWAY_API_KEY environment variable.");
     }
 
-    // OpenAI is used only for embeddings (text-embedding-3-small)
+    // OpenAI is used for embeddings, OCR, and structured metadata generation
     const openai = createOpenAI({ apiKey: openaiApiKey });
-    // Vercel AI Gateway with DeepSeek for OCR + metadata generation
-    const aiGateway = createGateway({ apiKey: gatewayApiKey });
+    const ingestionModel = openai("gpt-4o-mini");
 
     let extractedText = "";
     let isTextExtractable = true;
@@ -89,9 +88,9 @@ export const processDocument = internalAction({
         extractedText = parsed.text || "";
       } else if (args.mimeType.startsWith("image/")) {
         const base64Data = fileBuffer.toString("base64");
-        // Run OCR using Vercel AI Gateway (deepseek-v4-flash with vision)
+        // Run OCR using OpenAI gpt-4o-mini with vision
         const response = await generateText({
-          model: aiGateway("deepseek/deepseek-v4-flash"),
+          model: ingestionModel,
           output: Output.object({
             schema: z.object({
               text: z.string().describe("All readable text extracted from the image"),
@@ -125,9 +124,9 @@ export const processDocument = internalAction({
         extractedText = `This is an uploaded document named ${args.filename}. Direct text content is not select-copyable or readable.`;
       }
 
-      // 3. Generate structured metadata via AI Gateway
+      // 3. Generate structured metadata via OpenAI
       const detailsResponse = await generateText({
-        model: aiGateway("deepseek/deepseek-v4-flash"),
+        model: ingestionModel,
         output: Output.object({
           schema: z.object({
             title: z.string().describe("A clean title for the document"),

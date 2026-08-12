@@ -73,3 +73,18 @@ export async function getDownloadLink(documentId: string): Promise<string> {
   }
   return json.data.downloadUrl as string;
 }
+
+export async function getDocument(documentId: string): Promise<VaultDocument> {
+  const token = getToken();
+  if (!token) throw new AuthApiError('No session token');
+
+  const res = await fetch(`${API_URL}/api/documents/${documentId}`, {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+
+  const json = await res.json();
+  if (!res.ok || !json.success) {
+    throw new AuthApiError(json?.error?.message ?? `Failed to fetch document details`);
+  }
+  return json.data as VaultDocument;
+}

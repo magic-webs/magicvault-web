@@ -254,78 +254,106 @@ export default function DocumentsPage() {
                 {filteredDocuments.length} {filteredDocuments.length === 1 ? 'DOCUMENT' : 'DOCUMENTS'}
               </div>
 
-              {/* List of Document Cards */}
-              <div className="grid gap-3">
+              {/* Grid of Document Cards */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-6">
                 {filteredDocuments.map((doc) => {
                   const isImage = doc.mimeType.startsWith('image/');
                   const isReady = doc.status === 'ready';
                   const isFailed = doc.status === 'failed';
 
                   return (
-                    <Card key={doc.id} className="border-border/80 hover:border-border transition-colors">
-                      <CardContent className="p-4 sm:p-5 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-                        {/* Doc Info Section */}
-                        <div className="flex items-start gap-3.5 min-w-0 flex-1">
-                          <div className="h-10 w-10 rounded-lg bg-emerald-500/10 flex items-center justify-center text-emerald-500 shrink-0 mt-0.5 overflow-hidden">
-                            {isImage && imageUrls[doc.id] ? (
-                              <img src={imageUrls[doc.id]} alt={doc.title || doc.filename} className="h-full w-full object-cover" />
-                            ) : isImage ? (
-                              <ImageIcon className="h-5 w-5" />
-                            ) : (
-                              <FileText className="h-5 w-5" />
-                            )}
-                          </div>
-                          
-                          <div className="min-w-0 space-y-1.5">
-                            <div className="flex flex-wrap items-center gap-1.5">
-                              <h3 className="font-semibold text-sm sm:text-base leading-none text-foreground break-all line-clamp-1">
-                                {doc.title || doc.filename}
-                              </h3>
-                              <Badge variant="secondary" className="text-[10px] py-0 px-2 h-4 shrink-0 font-medium">
-                                {doc.category}
-                              </Badge>
-                              <Badge
-                                variant="outline"
-                                className={`text-[10px] py-0 px-2 h-4 shrink-0 font-medium gap-1 ${
-                                  isReady
-                                    ? 'bg-emerald-500/10 border-emerald-500/20 text-emerald-600 dark:text-emerald-400'
-                                    : isFailed
-                                    ? 'bg-red-500/10 border-red-500/20 text-red-600 dark:text-red-400'
-                                    : 'bg-amber-500/10 border-amber-500/20 text-amber-600 dark:text-amber-400'
-                                }`}
-                              >
-                                <span className={`h-1.5 w-1.5 rounded-full shrink-0 ${
-                                  isReady ? 'bg-emerald-500' : isFailed ? 'bg-red-500' : 'bg-amber-500'
-                                }`}></span>
-                                {doc.status}
-                              </Badge>
+                    <Card
+                      key={doc.id}
+                      onClick={() => router.push(`/documents/${doc.id}`)}
+                      className="border-border/80 hover:border-border hover:shadow-md transition-all duration-200 cursor-pointer overflow-hidden flex flex-col group bg-card"
+                    >
+                      {/* Document Preview Header */}
+                      <div className="h-40 w-full bg-muted/30 relative flex items-center justify-center border-b border-border/50 overflow-hidden shrink-0">
+                        {isImage && imageUrls[doc.id] ? (
+                          <img
+                            src={imageUrls[doc.id]}
+                            alt={doc.title || doc.filename}
+                            className="h-full w-full object-cover group-hover:scale-105 transition-transform duration-300"
+                          />
+                        ) : (
+                          <div className="absolute inset-0 bg-gradient-to-br from-emerald-500/5 to-teal-500/10 flex flex-col items-center justify-center gap-2">
+                            <div className="h-12 w-12 rounded-xl bg-emerald-500/10 flex items-center justify-center text-emerald-500">
+                              <FileText className="h-6 w-6" />
                             </div>
-                            
-                            <p className="text-[10px] text-muted-foreground">
-                              {doc.filename} · {formatFileSize(doc.size)} · Uploaded {formatDate(doc.createdAt)}
-                            </p>
-                            
-                            {doc.summary && (
-                              <p className="text-xs text-muted-foreground line-clamp-2 leading-relaxed">
-                                {doc.summary}
-                              </p>
-                            )}
+                            <span className="text-[10px] uppercase tracking-wider font-semibold text-muted-foreground/80">
+                              {doc.mimeType.split('/')[1]?.toUpperCase() || 'DOCUMENT'}
+                            </span>
                           </div>
+                        )}
+                        
+                        {/* Category Badge overlay */}
+                        <div className="absolute top-3 left-3 z-10">
+                          <Badge variant="secondary" className="text-[9px] font-semibold py-0.5 px-2 bg-background/95 backdrop-blur-sm shadow-sm border border-border/40">
+                            {doc.category}
+                          </Badge>
                         </div>
 
-                        {/* Actions section */}
-                        <div className="shrink-0 flex sm:flex-col items-stretch justify-end">
+                        {/* Status Badge overlay */}
+                        <div className="absolute top-3 right-3 z-10">
+                          <Badge
+                            variant="outline"
+                            className={`text-[9px] font-semibold py-0.5 px-2 bg-background/95 backdrop-blur-sm shadow-sm border border-border/40 gap-1 ${
+                              isReady
+                                ? 'text-emerald-600 dark:text-emerald-400 bg-emerald-500/5'
+                                : isFailed
+                                ? 'text-red-600 dark:text-red-400 bg-red-500/5'
+                                : 'text-amber-600 dark:text-amber-400 bg-amber-500/5'
+                            }`}
+                          >
+                            <span className={`h-1.5 w-1.5 rounded-full shrink-0 ${
+                              isReady ? 'bg-emerald-500' : isFailed ? 'bg-red-500' : 'bg-amber-500'
+                            }`}></span>
+                            {doc.status}
+                          </Badge>
+                        </div>
+                      </div>
+
+                      {/* Document Details Content */}
+                      <CardContent className="p-4 flex-1 flex flex-col justify-between">
+                        <div className="space-y-2">
+                          <h3 className="font-semibold text-sm leading-tight text-foreground line-clamp-1 group-hover:text-emerald-500 transition-colors">
+                            {doc.title || doc.filename}
+                          </h3>
+                          
+                          <p className="text-[10px] text-muted-foreground truncate">
+                            {doc.filename} · {formatFileSize(doc.size)}
+                          </p>
+
+                          {doc.summary ? (
+                            <p className="text-xs text-muted-foreground line-clamp-2 leading-relaxed">
+                              {doc.summary}
+                            </p>
+                          ) : (
+                            <p className="text-xs text-muted-foreground/60 italic">
+                              No summary generated yet.
+                            </p>
+                          )}
+                        </div>
+
+                        <div className="mt-4 pt-3 border-t border-border/50 flex items-center justify-between">
+                          <span className="text-[10px] text-muted-foreground/80">
+                            {formatDate(doc.createdAt)}
+                          </span>
+
                           <Button
-                            variant="secondary"
+                            variant="ghost"
                             size="sm"
                             disabled={downloadingId === doc.id}
-                            onClick={() => handleDownload(doc)}
-                            className="h-8.5 text-xs font-semibold gap-1.5 px-3 w-full sm:w-[110px]"
+                            onClick={(e) => {
+                              e.stopPropagation(); // prevent card navigation
+                              handleDownload(doc);
+                            }}
+                            className="h-7 text-[10px] font-bold gap-1 px-2.5 rounded-md hover:bg-emerald-500/10 hover:text-emerald-600 shrink-0"
                           >
                             {downloadingId === doc.id ? (
-                              <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                              <Loader2 className="h-3 w-3 animate-spin" />
                             ) : (
-                              <Download className="h-3.5 w-3.5" />
+                              <Download className="h-3 w-3" />
                             )}
                             Download
                           </Button>
