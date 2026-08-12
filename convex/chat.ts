@@ -194,9 +194,16 @@ export const simulate = action({
     // 4.2 Fetch chat history for conversational context
     try {
       const history = await ctx.runQuery(api.messages.listMessages, { whatsappNumber: args.whatsappNumber });
-      // The last message in history is the user's message we are currently processing (since it's inserted before calling simulate).
-      // We format the 8 messages BEFORE that to give the assistant conversational memory/context.
-      const previousMessages = history.slice(0, -1).slice(-10);
+      // Filter out the active user message we are currently processing if it exists at the end of history
+      let previousMessages = history;
+      if (previousMessages.length > 0) {
+        const lastMsg = previousMessages[previousMessages.length - 1];
+        if (lastMsg.sender === "user") {
+          previousMessages = previousMessages.slice(0, -1);
+        }
+      }
+      previousMessages = previousMessages.slice(-10);
+
       recentHistory = previousMessages
         .map((m) => {
           let text = m.text || `[${m.kind} message: ${m.filename || ""}]`;
@@ -349,9 +356,9 @@ Instructions:
       }
     }
 
-    // Only send the text reply if we didn't attach a document
-    if (replies.length === 0) {
-      replies.push({ type: "text", text: replyText });
+    // Always include the text reply if it has content
+    if (replyText && replyText.trim()) {
+      replies.unshift({ type: "text", text: replyText });
     }
 
 
