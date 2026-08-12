@@ -103,8 +103,8 @@ export const simulate = action({
       // Let's create an internalMutation or change createDocument to take userId when run internally, or we can just bypass it.
       // Wait! Let's write an internalMutation in documents.ts called `createDocumentInternal` so we don't need a token check!
       // This is much cleaner. We will add `createDocumentInternal` in documents.ts or execute it here.
-      // Wait, let's handle the background ingestion task using scheduler:
-      await ctx.scheduler.runAfter(0, internal.ingest.processDocument, {
+      // Run the ingestion task synchronously
+      const ingestResult = await ctx.runAction(internal.ingest.processDocument, {
         documentId: docId,
         userId: user._id,
         r2Key: uploadResult.r2Key,
@@ -114,15 +114,19 @@ export const simulate = action({
 
       const downloadUrl: string = await ctx.runAction(api.r2.getDownloadUrl, {
         r2Key: uploadResult.r2Key,
-        filename,
+        filename: (ingestResult.success && ingestResult.filename ? ingestResult.filename : filename),
       });
+
+      const replyText = ingestResult.success
+        ? `🤖 Document Analysis Complete!\n\nI have successfully processed and saved your document as:\n📁 *${ingestResult.filename}*\n\n*Category:* ${ingestResult.category}\n*Summary:* ${ingestResult.summary}`
+        : `⚠️ Document Ingestion Failed\n\nI was unable to process the uploaded file "${filename}".\n*Reason:* ${ingestResult.error}`;
 
       return {
         inbound: { kind: "upload", downloadUrl },
         replies: [
           {
             type: "text",
-            text: `📥 Document "${filename}" received! I am currently uploading, summarizing, and indexing it in your vault. It will show up under Saved Documents shortly.`,
+            text: replyText,
           },
         ],
       };
@@ -153,9 +157,33 @@ export const simulate = action({
       };
     }
 
-    // 4. Vector Search (RAG)
+    // 4. Vector Search (RAG) & Document Catalog & Chat History
     let contextText = "";
     let matchedDocs: Array<{ id: string; filename: string; mimeType: string; summary: string; r2Key: string }> = [];
+    let allDocs: any[] = [];
+    let recentHistory = "";
+
+    // 4.1 Fetch user's entire document catalog
+    try {
+      allDocs = await ctx.runQuery(internal.chat_db.listDocumentsInternal, { userId: user._id });
+    } catch (err) {
+      console.error("Failed to load user documents catalog", err);
+    }
+
+    // 4.2 Fetch chat history for conversational context
+    try {
+      const history = await ctx.runQuery(api.messages.listMessages, { whatsappNumber: args.whatsappNumber });
+      // The last message in history is the user's message we are currently processing (since it's inserted before calling simulate).
+      // We format the 8 messages BEFORE that to give the assistant conversational memory/context.
+      const previousMessages = history.slice(0, -1).slice(-8);
+      recentHistory = previousMessages
+        .map((m) => `${m.sender === "user" ? "User" : "Assistant"}: ${m.text || `[${m.kind} message: ${m.filename || ""}]`}`)
+        .join("\n");
+    } catch (err) {
+      console.error("Failed to load chat history", err);
+    }
+
+    // 4.3 Vector search for matches
     try {
       const { embedding } = await embed({
         model: openai.embedding("text-embedding-3-small"),
@@ -193,8 +221,12 @@ export const simulate = action({
     }
 
     // 5. Ask model with Vercel AI SDK
-    const documentsPromptContext = matchedDocs
-      .map((d) => `- Document ID: "${d.id}", Filename: "${d.filename}", Summary: "${d.summary}"`)
+    const matchedDocumentsPromptContext = matchedDocs
+      .map((d) => `- Document ID: "${d.id}", Filename: "${d.filename}"`)
+      .join("\n");
+
+    const allDocumentsContext = allDocs
+      .map((d) => `- Document ID: "${d._id}", Filename: "${d.filename}", Category: "${d.category}", Summary: "${d.summary}"`)
       .join("\n");
 
     const systemPrompt = `You are Magic Vault, a highly advanced personal document assistant.
@@ -204,19 +236,29 @@ If the context contains the answer, answer concisely and accurately based on it.
 If the context does not contain the answer, answer based on your general knowledge but politely remind the user that this info was not found in their vault.
 Refer to specific document titles or tags if you know them.
 
-Context from user's vault:
-${contextText || "No matching documents found in user's vault."}
+Conversational Memory (Recent History):
+${recentHistory || "No previous conversation history."}
 
-Available Documents:
-${documentsPromptContext || "No documents available in context."}
+All Documents in User's Vault:
+${allDocumentsContext || "No documents available in user's vault."}
+
+Context from matched document chunks:
+${contextText || "No matching content context found."}
+
+Matched Search Documents:
+${matchedDocumentsPromptContext || "No matching search documents."}
 
 User Question: "${queryText}"
 
 Instructions:
-1. Generate a clear, concise, conversational text reply.
-2. Check if the user is explicitly asking to retrieve, view, download, or get the file/document itself (e.g. "give me the invoice", "download my passport", "show me the PDF file", "send me the file").
-   - If they are, set "shouldAttachDocumentId" to the matching Document ID.
-   - If they are only asking questions about the document content but not asking for the file itself, or if they are asking a general question, set "shouldAttachDocumentId" to null.`;
+1. Generate a clear, concise, conversational text reply. Be friendly and helpful.
+2. Check if the user is asking to retrieve, view, download, or send a specific document or file.
+   - If they are, and you can identify the exact matching Document ID from the vault documents, set "shouldAttachDocumentId" to that Document ID.
+   - Otherwise, set "shouldAttachDocumentId" to null.
+3. If the user asks for a document type (e.g. "Aadhaar card", "PAN card") but there are multiple documents of that type matching different individuals' names (e.g. "abhijit-pradhan-adhar" and "john-doe-adhar"), and the user hasn't specified whose document they want:
+   - Do NOT attach any document yet (set "shouldAttachDocumentId" to null).
+   - In your textReply, politely list the names/filenames of the available matching documents and ask the user to clarify whose document they are looking for.
+4. Keep the conversation context-aware. If the user clarifies their choice from the previous message (e.g., they said "Abhijit's" in response to your list of options), refer to the history to identify the correct document, and attach it.`;
 
     const { output: chatResult } = await generateText({
       model: openai("gpt-4o-mini"),
@@ -235,7 +277,8 @@ Instructions:
 
     // If user asked for the document, generate a signed download link and attach it
     if (chatResult.shouldAttachDocumentId) {
-      const docToAttach = matchedDocs.find((d) => d.id === chatResult.shouldAttachDocumentId);
+      const docToAttach = matchedDocs.find((d) => d.id === chatResult.shouldAttachDocumentId) ||
+                          allDocs.find((d) => d._id === chatResult.shouldAttachDocumentId);
       if (docToAttach) {
         try {
           const downloadUrl = await ctx.runAction(api.r2.getDownloadUrl, {

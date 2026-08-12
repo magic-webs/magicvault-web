@@ -1,5 +1,5 @@
-import { WhatsAppSimulator } from '@/components/whatsapp-simulator';
+import { ChatSimulator } from '@/components/chat-simulator';
 
 export default function Home() {
-  return <WhatsAppSimulator />;
+  return <ChatSimulator />;
 }

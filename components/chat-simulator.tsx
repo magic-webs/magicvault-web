@@ -53,6 +53,7 @@ import { PhoneInput, DEFAULT_COUNTRY_CODE, COUNTRY_CODES, toE164 } from './phone
 import { getStoredUser, type AuthUser } from '@/lib/auth-api';
 import { ThemeToggle } from '@/components/theme-provider';
 import { simulateMessage, blobToBase64, SimulateApiError, type SimulateReply } from '@/lib/simulate-api';
+import { cn } from "@/lib/utils";
 
 type DeliveryStatus = 'sending' | 'sent' | 'error';
 
@@ -99,7 +100,7 @@ function formatTime(iso: string): string {
   }
 }
 
-export function WhatsAppSimulator() {
+export function ChatSimulator() {
   const router = useRouter();
   const [mounted, setMounted] = useState(false);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
@@ -114,6 +115,21 @@ export function WhatsAppSimulator() {
   const [composerValue, setComposerValue] = useState('');
   const [isRecording, setIsRecording] = useState(false);
   const [recordSeconds, setRecordSeconds] = useState(0);
+  const [isAiLoading, setIsAiLoading] = useState(false);
+
+  const messagesEndRef = useRef<HTMLDivElement | null>(null);
+
+  const scrollToBottom = () => {
+    messagesEndRef.current?.scrollIntoView({ behavior: 'auto' });
+  };
+
+  // Scroll to bottom whenever messages update
+  useEffect(() => {
+    if (messages.length > 0) {
+      const timer = setTimeout(scrollToBottom, 60);
+      return () => clearTimeout(timer);
+    }
+  }, [messages]);
 
 
 
@@ -206,6 +222,7 @@ export function WhatsAppSimulator() {
     setMessages((prev) => [...prev, msg]);
   }
 
+  // Delivery status updates
   function updateStatus(id: string, status: DeliveryStatus) {
     setMessages((prev) => prev.map((m) => (m.id === id && 'status' in m ? { ...m, status } : m)));
   }
@@ -251,12 +268,15 @@ export function WhatsAppSimulator() {
     const id = nextId();
     addMessage({ id, sender: 'user', kind: 'text', text, timestamp: new Date().toISOString(), status: 'sending' });
     setComposerValue('');
+    setIsAiLoading(true);
     try {
       const data = await simulateMessage({ kind: 'text', whatsappNumber, text });
       updateStatus(id, 'sent');
       appendReplies(data.replies);
     } catch (error) {
       reportError(id, error);
+    } finally {
+      setIsAiLoading(false);
     }
   }
 
@@ -278,6 +298,7 @@ export function WhatsAppSimulator() {
       status: 'sending',
     });
 
+    setIsAiLoading(true);
     try {
       const base64 = await blobToBase64(file);
       const data = await simulateMessage({
@@ -289,6 +310,8 @@ export function WhatsAppSimulator() {
       appendReplies(data.replies);
     } catch (error) {
       reportError(id, error);
+    } finally {
+      setIsAiLoading(false);
     }
   }
 
@@ -305,6 +328,7 @@ export function WhatsAppSimulator() {
       status: 'sending',
     });
 
+    setIsAiLoading(true);
     try {
       const base64 = await blobToBase64(blob);
       const data = await simulateMessage({
@@ -325,6 +349,8 @@ export function WhatsAppSimulator() {
       appendReplies(data.replies);
     } catch (error) {
       reportError(id, error);
+    } finally {
+      setIsAiLoading(false);
     }
   }
 
@@ -369,7 +395,7 @@ export function WhatsAppSimulator() {
   function getStatusIcon(status: DeliveryStatus) {
     if (status === 'sending') return <Loader2 className="h-3 w-3 animate-spin text-muted-foreground" />;
     if (status === 'error') return <span className="text-red-500 text-xs">⚠️</span>;
-    return <span className="text-emerald-500 text-xs">✓✓</span>;
+    return null;
   }
 
   function renderMessage(msg: ChatMsg) {
@@ -408,10 +434,11 @@ export function WhatsAppSimulator() {
             {isUser && msg.kind === 'upload' && (
               <div className="bg-primary text-primary-foreground rounded-2xl rounded-tr-none p-2 shadow-sm break-words self-end">
                 {msg.mimeType?.startsWith('image/') && (msg.previewUrl || msg.downloadUrl) ? (
-                  <img
-                    src={msg.previewUrl || msg.downloadUrl}
+                  <LoadingImage
+                    src={msg.previewUrl || msg.downloadUrl || ''}
                     alt={msg.filename}
                     className="rounded-lg object-cover max-w-full h-auto max-h-48"
+                    onLoadComplete={scrollToBottom}
                   />
                 ) : (
                   <div className="flex items-center gap-2 px-2 py-1 bg-primary-foreground/10 rounded-lg">
@@ -467,10 +494,11 @@ export function WhatsAppSimulator() {
               <Card className="self-start overflow-hidden w-full max-w-[290px] border border-border/80 shadow-sm bg-card">
                 <CardHeader className="p-3 pb-2 flex flex-col gap-2">
                   {msg.mimeType.startsWith('image/') ? (
-                    <img
+                    <LoadingImage
                       src={msg.downloadUrl}
                       alt={msg.filename}
                       className="rounded-md object-cover max-w-full h-auto max-h-40 mb-1"
+                      onLoadComplete={scrollToBottom}
                     />
                   ) : (
                     <div className="flex items-start gap-2.5">
@@ -516,7 +544,7 @@ export function WhatsAppSimulator() {
   if (!mounted || !currentUser) return null;
 
   return (
-    <div className="flex h-screen w-screen overflow-hidden bg-background text-foreground">
+    <div className="flex h-dvh w-full overflow-hidden bg-background text-foreground">
       {/* Main Chat Interface */}
       <main className="flex-1 flex flex-col h-full overflow-hidden bg-card/10 relative">
         {/* Top Navbar - Responsive */}
@@ -588,6 +616,30 @@ export function WhatsAppSimulator() {
                         {renderMessage(msg)}
                       </MessageScrollerItem>
                     ))}
+                    {isAiLoading && (
+                      <MessageScrollerItem messageId="ai-loading" scrollAnchor={false}>
+                        <Message align="start" className="px-2 md:px-4 py-1 animate-fade-in">
+                          <MessageAvatar>
+                            <Avatar className="size-8">
+                              <AvatarFallback className="bg-emerald-500 text-white text-xs">
+                                <Sparkles className="h-4 w-4" />
+                              </AvatarFallback>
+                            </Avatar>
+                          </MessageAvatar>
+                          <MessageContent>
+                            <MessageHeader className="flex items-center gap-1.5 mb-0.5 self-start">
+                              <span className="font-semibold text-xs text-foreground">Magic Vault</span>
+                            </MessageHeader>
+                            <div className="flex space-x-1 items-center px-4 py-3 bg-muted rounded-2xl rounded-tl-none w-16 justify-center">
+                              <div className="h-1.5 w-1.5 bg-muted-foreground/60 rounded-full animate-bounce [animation-delay:-0.3s]"></div>
+                              <div className="h-1.5 w-1.5 bg-muted-foreground/60 rounded-full animate-bounce [animation-delay:-0.15s]"></div>
+                              <div className="h-1.5 w-1.5 bg-muted-foreground/60 rounded-full animate-bounce"></div>
+                            </div>
+                          </MessageContent>
+                        </Message>
+                      </MessageScrollerItem>
+                    )}
+                    <div ref={messagesEndRef} />
                   </MessageScrollerContent>
                 )}
               </MessageScrollerViewport>
@@ -687,6 +739,37 @@ export function WhatsAppSimulator() {
         />
 
       </main>
+    </div>
+  );
+}
+
+function LoadingImage({ src, alt, className, onLoadComplete }: { src: string; alt: string; className?: string; onLoadComplete?: () => void }) {
+  const [isLoading, setIsLoading] = useState(true);
+
+  return (
+    <div className="relative min-h-[120px] w-full flex items-center justify-center bg-muted/20 rounded-md overflow-hidden">
+      {isLoading && (
+        <div className="absolute inset-0 flex items-center justify-center bg-muted/40 animate-pulse">
+          <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
+        </div>
+      )}
+      <img
+        src={src}
+        alt={alt}
+        className={cn(
+          className,
+          "transition-opacity duration-300",
+          isLoading ? "opacity-0 h-0 w-0" : "opacity-100"
+        )}
+        onLoad={() => {
+          setIsLoading(false);
+          onLoadComplete?.();
+        }}
+        onError={() => {
+          setIsLoading(false);
+          onLoadComplete?.();
+        }}
+      />
     </div>
   );
 }

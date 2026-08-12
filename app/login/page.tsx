@@ -48,7 +48,7 @@ export default function LoginPage() {
   }
 
   return (
-    <div className="min-h-screen w-screen flex flex-col items-center justify-center bg-background p-4 relative">
+    <div className="min-h-screen w-full flex flex-col items-center justify-center bg-background p-4 relative">
       {/* Top right theme toggle */}
       <div className="absolute top-4 right-4 z-10">
         <ThemeToggle />

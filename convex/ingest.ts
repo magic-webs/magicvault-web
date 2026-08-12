@@ -172,22 +172,13 @@ export const processDocument = internalAction({
         status: "ready",
       });
 
-      // Send analysis completion notification message to chat history
-      try {
-        const user = await ctx.runQuery(internal.chat_db.getUserById, { userId: args.userId });
-        if (user) {
-          await ctx.runMutation(api.messages.storeMessage, {
-            whatsappNumber: user.whatsappNumber,
-            sender: "assistant",
-            kind: "text",
-            text: `🤖 Document Analysis Complete!\n\nI have successfully processed and saved your document as:\n📁 *${cleanFilename}*\n\n*Category:* ${category}\n*Summary:* ${summary}`,
-          });
-        }
-      } catch (msgErr) {
-        console.error("Failed to store document completion message", msgErr);
-      }
-
-      return { success: true };
+      return {
+        success: true,
+        title: cleanTitle,
+        filename: cleanFilename,
+        category,
+        summary,
+      };
     } catch (error) {
       console.error("Ingestion failed", error);
       const failureReason = error instanceof Error ? error.message : String(error);
@@ -201,21 +192,6 @@ export const processDocument = internalAction({
         status: "failed",
         failureReason,
       });
-
-      // Send analysis failure notification message to chat history
-      try {
-        const user = await ctx.runQuery(internal.chat_db.getUserById, { userId: args.userId });
-        if (user) {
-          await ctx.runMutation(api.messages.storeMessage, {
-            whatsappNumber: user.whatsappNumber,
-            sender: "assistant",
-            kind: "text",
-            text: `⚠️ Document Ingestion Failed\n\nI was unable to process the uploaded file "${args.filename}".\n*Reason:* ${failureReason}`,
-          });
-        }
-      } catch (msgErr) {
-        console.error("Failed to store document failure message", msgErr);
-      }
 
       return { success: false, error: failureReason };
     }
