@@ -3,6 +3,7 @@ const API_URL = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:8787'
 export type SimulateReply =
   | { type: 'text'; text: string }
   | { type: 'document'; filename: string; mimeType: string; caption: string; downloadUrl: string }
+  | { type: 'voice'; audioUrl: string; durationSec: number }
 
 export interface SimulateResponseData {
   inbound: { kind: 'text' | 'voice' | 'upload'; transcript?: string }
