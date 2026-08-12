@@ -68,7 +68,7 @@ export default function ProfilePage() {
           className="text-xs h-8 gap-1.5"
         >
           <MessageSquare className="h-3.5 w-3.5" />
-          Simulator
+          Chat
         </Button>
         <ThemeToggle />
       </div>
@@ -190,7 +190,7 @@ export default function ProfilePage() {
                 className="w-full justify-start text-xs h-10 gap-2 font-medium bg-emerald-500 hover:bg-emerald-600 text-white border-0"
               >
                 <MessageSquare className="h-4.5 w-4.5" />
-                Launch WhatsApp Simulator
+                Open Chat
               </Button>
               <Button
                 variant="destructive"

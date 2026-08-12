@@ -120,7 +120,7 @@ export default function DocumentsPage() {
             className="text-xs h-8 gap-1.5"
           >
             <MessageSquare className="h-3.5 w-3.5" />
-            Simulator
+            Chat
           </Button>
           <Button
             variant="ghost"
@@ -221,14 +221,14 @@ export default function DocumentsPage() {
                 <CardDescription className="text-xs leading-relaxed mb-4">
                   {searchQuery || selectedCategory !== 'all'
                     ? 'Try clearing your search filters or category selection.'
-                    : 'Upload a document or photo in the WhatsApp simulator to store it securely in your Magic Vault.'}
+                    : 'Upload a document or photo in the chat to store it securely in your Magic Vault.'}
                 </CardDescription>
                 <Button
                   onClick={() => router.push('/')}
                   className="w-full text-xs h-9 bg-emerald-500 hover:bg-emerald-600 text-white border-0 gap-1.5"
                 >
                   <MessageSquare className="h-4 w-4" />
-                  Launch WhatsApp Simulator
+                  Open Chat
                 </Button>
               </CardContent>
             </Card>

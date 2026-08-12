@@ -1,6 +1,6 @@
 import { getToken, AuthApiError } from './auth-api';
 
-const API_URL = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:8787';
+const API_URL = process.env.NEXT_PUBLIC_API_URL ?? '';
 
 export interface VaultDocument {
   id: string;

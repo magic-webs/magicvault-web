@@ -101,7 +101,6 @@ function formatTime(iso: string): string {
 export function WhatsAppSimulator() {
   const router = useRouter();
   const [mounted, setMounted] = useState(false);
-  const [isMobileSettingsOpen, setIsMobileSettingsOpen] = useState(false);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const recordChunksRef = useRef<Blob[]>([]);
@@ -109,9 +108,7 @@ export function WhatsAppSimulator() {
   const recordTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   const [currentUser, setCurrentUser] = useState<AuthUser | null>(null);
-  const [whatsappNumber, setWhatsappNumber] = useState(toE164(DEFAULT_COUNTRY_CODE, '5550001111'));
-  const [countryCode, setCountryCode] = useState(DEFAULT_COUNTRY_CODE);
-  const [localNumber, setLocalNumber] = useState('5550001111');
+  const [whatsappNumber, setWhatsappNumber] = useState('');
   const [messages, setMessages] = useState<ChatMsg[]>([]);
   const [composerValue, setComposerValue] = useState('');
   const [isRecording, setIsRecording] = useState(false);
@@ -130,18 +127,13 @@ export function WhatsAppSimulator() {
   useEffect(() => {
     setMounted(true);
     const user = getStoredUser();
-    if (user) {
-      setCurrentUser(user);
-      const match = COUNTRY_CODES.find((c) => user.whatsappNumber.startsWith(c.value));
-      if (match) {
-        setCountryCode(match.value);
-        setLocalNumber(user.whatsappNumber.slice(match.value.length));
-        setWhatsappNumber(user.whatsappNumber);
-      } else {
-        setWhatsappNumber(user.whatsappNumber);
-      }
+    if (!user) {
+      router.push('/login');
+      return;
     }
-  }, []);
+    setCurrentUser(user);
+    setWhatsappNumber(user.whatsappNumber);
+  }, [router]);
 
   // Restore stored chat history when whatsappNumber changes
   useEffect(() => {
@@ -379,11 +371,7 @@ export function WhatsAppSimulator() {
     if (recordTimerRef.current) clearInterval(recordTimerRef.current);
   }
 
-  function startNewChat() {
-    if (!localNumber.trim()) return;
-    setWhatsappNumber(toE164(countryCode, localNumber));
-    setMessages([]);
-  }
+
 
   function getStatusIcon(status: DeliveryStatus) {
     if (status === 'sending') return <Loader2 className="h-3 w-3 animate-spin text-muted-foreground" />;
@@ -539,85 +527,10 @@ export function WhatsAppSimulator() {
     );
   }
 
-  if (!mounted) return null;
+  if (!mounted || !currentUser) return null;
 
   return (
     <div className="flex h-screen w-screen overflow-hidden bg-background text-foreground">
-      {/* Sidebar - Desktop Layout */}
-      <aside className="hidden md:flex flex-col w-[350px] shrink-0 border-r border-border bg-muted/30">
-        {/* Sidebar Header */}
-        <div className="p-4 border-b border-border flex items-center justify-between bg-card">
-          <div className="flex items-center gap-2">
-            <MessageSquare className="h-5 w-5 text-emerald-500" />
-            <h1 className="font-bold text-base">Magic Vault Simulator</h1>
-          </div>
-          <ThemeToggle />
-        </div>
-
-        {/* Sidebar Scrollable Panel */}
-        <div className="flex-1 overflow-y-auto p-4 space-y-6">
-          <Card className="border-border/60">
-            <CardHeader className="p-4 pb-2">
-              <CardTitle className="text-sm font-semibold">Simulated User</CardTitle>
-              <CardDescription className="text-xs">Configure the phone number for WhatsApp message simulation.</CardDescription>
-            </CardHeader>
-            <CardContent className="p-4 pt-0 space-y-4">
-              <PhoneInput
-                countryCode={countryCode}
-                onCountryCodeChange={setCountryCode}
-                localNumber={localNumber}
-                onLocalNumberChange={setLocalNumber}
-                isRequired
-              />
-              <Button onClick={startNewChat} className="w-full gap-1.5 h-9 text-xs">
-                <Plus className="h-3.5 w-3.5" /> Start New Chat
-              </Button>
-            </CardContent>
-          </Card>
-
-          {/* Quick Stats or Actions */}
-          <div className="space-y-2">
-            <h2 className="text-xs font-semibold text-muted-foreground uppercase px-1">Actions</h2>
-            <div className="flex flex-col gap-1.5">
-              {messages.length > 0 && (
-                <Button variant="outline" onClick={clearChatHistory} className="w-full justify-start text-xs h-9 gap-2">
-                  <Trash2 className="h-4 w-4 text-red-500" /> Clear Chat History
-                </Button>
-              )}
-              {currentUser ? (
-                <Button variant="outline" onClick={() => router.push('/profile')} className="w-full justify-start text-xs h-9 gap-2">
-                  <UserIcon className="h-4 w-4" /> {currentUser.name || 'View Profile'}
-                </Button>
-              ) : (
-                <Button variant="default" onClick={() => router.push('/login')} className="w-full justify-start text-xs h-9 gap-2">
-                  <UserIcon className="h-4 w-4" /> Sign In
-                </Button>
-              )}
-              <Button variant="outline" onClick={() => router.push('/documents')} className="w-full justify-start text-xs h-9 gap-2">
-                <FileText className="h-4 w-4" /> View Vault Documents
-              </Button>
-            </div>
-          </div>
-        </div>
-
-        {/* Sidebar Footer */}
-        {currentUser && (
-          <div className="p-4 border-t border-border bg-card flex items-center justify-between">
-            <div className="flex items-center gap-2">
-              <Avatar className="size-8">
-                <AvatarFallback className="bg-primary text-primary-foreground text-xs font-bold">
-                  {(currentUser.name || 'U')[0].toUpperCase()}
-                </AvatarFallback>
-              </Avatar>
-              <div className="min-w-0">
-                <p className="text-xs font-semibold truncate leading-tight">{currentUser.name}</p>
-                <p className="text-[10px] text-muted-foreground truncate">{currentUser.whatsappNumber}</p>
-              </div>
-            </div>
-          </div>
-        )}
-      </aside>
-
       {/* Main Chat Interface */}
       <main className="flex-1 flex flex-col h-full overflow-hidden bg-card/10 relative">
         {/* Top Navbar - Responsive */}
@@ -629,21 +542,12 @@ export function WhatsAppSimulator() {
             </Avatar>
             <div>
               <h3 className="font-semibold text-sm leading-tight">Magic Vault</h3>
-              <p className="text-[10px] text-emerald-500 font-medium">Active Simulation: {whatsappNumber}</p>
+              <p className="text-[10px] text-emerald-500 font-medium">Connected: {whatsappNumber}</p>
             </div>
           </div>
 
           {/* Quick Header Actions */}
           <div className="flex items-center gap-1 md:gap-2">
-            <Button
-              variant="ghost"
-              size="icon"
-              className="md:hidden h-8 w-8 text-muted-foreground"
-              onClick={() => setIsMobileSettingsOpen(true)}
-              title="Simulation Settings"
-            >
-              <Settings className="h-4 w-4" />
-            </Button>
             <ThemeToggle className="h-8 w-8" />
             <Button
               variant="ghost"
@@ -688,7 +592,7 @@ export function WhatsAppSimulator() {
                     </div>
                     <h3 className="font-bold text-base mb-1 text-foreground">No messages yet</h3>
                     <p className="text-xs text-muted-foreground leading-relaxed">
-                      Testing simulation as <span className="font-semibold text-foreground">{whatsappNumber}</span>. Send a text message, upload a document, or record a voice note below to test your vault.
+                      Connected as <span className="font-semibold text-foreground">{whatsappNumber}</span>. Send a text message, upload a document, or record a voice note below to interact with your vault.
                     </p>
                   </div>
                 ) : (
@@ -796,46 +700,6 @@ export function WhatsAppSimulator() {
           onChange={handleFileChange}
         />
 
-        {/* Mobile Settings Drawer/Overlay */}
-        {isMobileSettingsOpen && (
-          <div className="absolute inset-0 bg-background/80 backdrop-blur-sm z-50 flex items-end sm:items-center justify-center p-4">
-            <Card className="w-full max-w-sm shadow-xl border-border/80 bg-card">
-              <CardHeader className="p-4 flex flex-row items-center justify-between border-b border-border/50">
-                <div>
-                  <CardTitle className="text-sm font-semibold">Simulation Settings</CardTitle>
-                  <CardDescription className="text-[10px]">Change WhatsApp simulated user details.</CardDescription>
-                </div>
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  className="h-7 w-7 rounded-full text-muted-foreground"
-                  onClick={() => setIsMobileSettingsOpen(false)}
-                >
-                  <X className="h-4 w-4" />
-                </Button>
-              </CardHeader>
-              <CardContent className="p-4 space-y-4">
-                <PhoneInput
-                  countryCode={countryCode}
-                  onCountryCodeChange={setCountryCode}
-                  localNumber={localNumber}
-                  onLocalNumberChange={setLocalNumber}
-                  isRequired
-                />
-                <div className="flex gap-2">
-                  {messages.length > 0 && (
-                    <Button variant="outline" size="sm" onClick={() => { clearChatHistory(); setIsMobileSettingsOpen(false); }} className="flex-1 h-9 text-xs text-red-500 gap-1.5">
-                      <Trash2 className="h-3.5 w-3.5" /> Clear History
-                    </Button>
-                  )}
-                  <Button size="sm" onClick={() => { startNewChat(); setIsMobileSettingsOpen(false); }} className="flex-1 h-9 text-xs">
-                    Apply & Start
-                  </Button>
-                </div>
-              </CardContent>
-            </Card>
-          </div>
-        )}
       </main>
     </div>
   );

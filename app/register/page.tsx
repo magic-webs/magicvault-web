@@ -79,7 +79,7 @@ export default function RegisterPage() {
           <CardHeader className="space-y-1 text-center">
             <CardTitle className="text-xl font-bold">Create account</CardTitle>
             <CardDescription className="text-xs">
-              Sign up with your WhatsApp number
+              Sign up with your phone number
             </CardDescription>
           </CardHeader>
           <CardContent>
