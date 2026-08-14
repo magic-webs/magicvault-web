@@ -248,14 +248,18 @@ async function processIncoming(body: any, origin: string) {
         if (reply.type === "text") {
           let textToSend = reply.text || "";
 
-          // If it's a structured_details JSON, convert to readable text
-          if (textToSend.trim().startsWith('{"type":"structured_details"')) {
+          // If it's a structured_details JSON or document_analysis JSON, convert to readable text
+          if (textToSend.trim().startsWith('{')) {
             try {
               const parsed = JSON.parse(textToSend);
-              const fieldLines = (parsed.fields || [])
-                .map((f: { key: string; value: string }) => `- *${f.key}*: ${f.value}`)
-                .join("\n");
-              textToSend = `*${parsed.title || "Details"}*\n\n${parsed.intro || ""}\n\n${fieldLines}\n\n${parsed.outro || ""}`;
+              if (parsed.type === "document_analysis") {
+                textToSend = `📄 *Document Analyzed & Saved!*\n\n- *Filename*: ${parsed.filename || "Uploaded File"}\n- *Category*: ${parsed.category || "General"}\n- *Summary*: ${parsed.summary || ""}`;
+              } else if (parsed.type === "structured_details") {
+                const fieldLines = (parsed.fields || [])
+                  .map((f: { key: string; value: string }) => `- *${f.key}*: ${f.value}`)
+                  .join("\n");
+                textToSend = `*${parsed.title || "Details"}*\n\n${parsed.intro || ""}\n\n${fieldLines}\n\n${parsed.outro || ""}`;
+              }
             } catch {
               // leave as-is if parsing fails
             }

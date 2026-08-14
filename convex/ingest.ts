@@ -66,11 +66,6 @@ export const processDocument = internalAction({
       throw new Error("Missing OPENAI_API_KEY environment variable.");
     }
 
-    const gatewayApiKey = process.env.AI_GATEWAY_API_KEY;
-    if (!gatewayApiKey) {
-      throw new Error("Missing AI_GATEWAY_API_KEY environment variable.");
-    }
-
     // OpenAI is used for embeddings, OCR, and structured metadata generation
     const openai = createOpenAI({ apiKey: openaiApiKey });
     const ingestionModel = openai("gpt-4o-mini");
@@ -87,7 +82,6 @@ export const processDocument = internalAction({
         const parsed = await pdf(fileBuffer);
         extractedText = parsed.text || "";
       } else if (args.mimeType.startsWith("image/")) {
-        const base64Data = fileBuffer.toString("base64");
         // Run OCR using OpenAI gpt-4o-mini with vision
         const response = await generateText({
           model: ingestionModel,
@@ -105,8 +99,9 @@ export const processDocument = internalAction({
                   text: "Please perform OCR on this document image and extract all text content exactly as written. Output in the schema.",
                 },
                 {
-                  type: "image",
-                  image: `data:${args.mimeType};base64,${base64Data}`,
+                  type: "file",
+                  data: fileBuffer,
+                  mediaType: args.mimeType,
                 },
               ],
             },
