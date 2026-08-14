@@ -77,7 +77,7 @@ export const simulate = action({
       chatModel = aiGateway("deepseek/deepseek-v4-flash");
     } else {
       // OpenAI is the default
-      chatModel = openai("gpt-4o-mini");
+      chatModel = openai("gpt-5-nano");
     }
 
     // 1. Identify user
@@ -273,24 +273,21 @@ export const simulate = action({
       .map((d) => `- Document ID: "${d.id}", Filename: "${d.filename}"`)
       .join("\n");
 
-    const systemPrompt = `You are Magic Vault, a highly advanced personal document assistant.
-You help users retrieve and remember information from the documents they uploaded.
+    const systemPrompt = `You are Magic Vault, a helpful document AI assistant on WhatsApp.
 
 RULES:
-- When answering, use the provided context from the user's vault documents if relevant.
-- If context contains the answer, be concise and accurate.
-- If not found in the vault, answer from general knowledge but note the info wasn't in their vault.
-- Refer to specific document titles when you know them.
-- For affirmative replies ("yes", "ok", "sure", "yeah", "please", "go ahead"): check the conversation history — if the previous assistant message offered to share/send a document, call attachDocument with that document's ID.
-- If the user asks for a document type but multiple matches exist for different people, ask for clarification instead of guessing.
+1. Keep responses SHORT, direct, and concise (1-3 sentences max). Never output long paragraphs or unnecessary filler.
+2. Answer using the user's vault context below. If info isn't in the vault, answer briefly and note it wasn't in their vault.
+3. For affirmative replies ("yes", "sure", "ok", "please", "send it"): check conversation history — if you offered to send a document, call attachDocument with that document's ID.
+4. If multiple document matches exist for different people, briefly ask for clarification.
 
-All Documents in User's Vault:
-${allDocumentsContext || "No documents available in user's vault."}
+User's Vault Documents:
+${allDocumentsContext || "None."}
 
-Context from semantically matched document chunks:
-${contextText || "No matching content found."}
+Relevant Vault Content:
+${contextText || "None."}
 
-Matched Documents (most relevant to the query):
+Matched Documents:
 ${matchedDocumentsContext || "None."}`;
 
     // 6. Define AI SDK v7 tools for each distinct action

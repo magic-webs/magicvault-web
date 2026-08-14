@@ -13,6 +13,15 @@ export interface AuthResult {
 
 export class AuthApiError extends Error {}
 
+export function cleanErrorMessage(msg: string): string {
+  if (!msg) return "An unexpected error occurred.";
+  let cleaned = msg.replace(/^\[Request ID: [a-f0-9]+\]\s*/i, "");
+  cleaned = cleaned.replace(/^Server Error\s*/i, "");
+  cleaned = cleaned.replace(/^Uncaught Error:\s*/i, "");
+  cleaned = cleaned.replace(/^Error:\s*/i, "");
+  return cleaned.trim() || "Authentication failed.";
+}
+
 async function post(path: string, body: unknown): Promise<AuthResult> {
   const res = await fetch(`${API_URL}${path}`, {
     method: 'POST',
@@ -22,7 +31,8 @@ async function post(path: string, body: unknown): Promise<AuthResult> {
 
   const json = await res.json()
   if (!res.ok || !json.success) {
-    throw new AuthApiError(json?.error?.message ?? `Request failed with status ${res.status}`)
+    const rawMsg = json?.error?.message ?? `Request failed with status ${res.status}`;
+    throw new AuthApiError(cleanErrorMessage(rawMsg));
   }
   return json.data as AuthResult
 }

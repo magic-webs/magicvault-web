@@ -68,7 +68,7 @@ export const processDocument = internalAction({
 
     // OpenAI is used for embeddings, OCR, and structured metadata generation
     const openai = createOpenAI({ apiKey: openaiApiKey });
-    const ingestionModel = openai("gpt-4o-mini");
+    const ingestionModel = openai("gpt-5-nano");
 
     let extractedText = "";
     let isTextExtractable = true;
