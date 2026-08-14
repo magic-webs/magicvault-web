@@ -24,9 +24,9 @@ export const COUNTRY_CODES = [
   { value: '+86', label: '🇨🇳 +86' },
 ];
 
-/** Combines a country code and local digits into an E.164 phone number. */
+/** Combines a country code and local digits into a clean numeric phone number (without +). */
 export function toE164(countryCode: string, localNumber: string): string {
-  return `${countryCode}${localNumber.replace(/\D/g, '')}`;
+  return `${countryCode}${localNumber}`.replace(/\D/g, '');
 }
 
 interface PhoneInputProps {

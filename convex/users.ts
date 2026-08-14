@@ -40,8 +40,8 @@ export const register = mutation({
     name: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
-    // Normalise number
-    const normalizedNumber = args.whatsappNumber.trim();
+    // Normalise number (strip + and non-digits)
+    const normalizedNumber = args.whatsappNumber.replace(/\D/g, '');
     if (!normalizedNumber) {
       throw new Error("WhatsApp number is required");
     }
@@ -107,7 +107,7 @@ export const login = mutation({
     password: v.string(),
   },
   handler: async (ctx, args) => {
-    const normalizedNumber = args.whatsappNumber.trim();
+    const normalizedNumber = args.whatsappNumber.replace(/\D/g, '');
     const user = await ctx.db
       .query("users")
       .withIndex("by_whatsappNumber", (q) => q.eq("whatsappNumber", normalizedNumber))
@@ -174,9 +174,10 @@ export const getUserByWhatsApp = query({
     whatsappNumber: v.string(),
   },
   handler: async (ctx, args) => {
+    const normalizedNumber = args.whatsappNumber.replace(/\D/g, '');
     const user = await ctx.db
       .query("users")
-      .withIndex("by_whatsappNumber", (q) => q.eq("whatsappNumber", args.whatsappNumber))
+      .withIndex("by_whatsappNumber", (q) => q.eq("whatsappNumber", normalizedNumber))
       .unique();
 
     if (!user) return null;

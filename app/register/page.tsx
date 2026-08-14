@@ -11,7 +11,7 @@ import { register, saveSession, getStoredUser, AuthApiError } from '@/lib/auth-a
 import { PhoneInput, DEFAULT_COUNTRY_CODE, toE164 } from '@/components/phone-input';
 import { ThemeToggle } from '@/components/theme-provider';
 
-const PHONE_PATTERN = /^\+[1-9]\d{7,14}$/;
+const PHONE_PATTERN = /^[1-9]\d{7,14}$/;
 
 export default function RegisterPage() {
   const router = useRouter();
