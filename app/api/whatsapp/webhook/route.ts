@@ -3,6 +3,22 @@ import { convexClient } from "@/lib/convex-client";
 import { api } from "@/convex/_generated/api";
 import { sendWhatsAppText, sendWhatsAppDocument } from "@/lib/whatsapp-api";
 
+// Helper: retry Convex operations if serverless socket resets occur
+async function retryConvex<T>(fn: () => Promise<T>, retries = 2): Promise<T> {
+  let lastErr: any;
+  for (let i = 0; i <= retries; i++) {
+    try {
+      return await fn();
+    } catch (err: any) {
+      lastErr = err;
+      if (i < retries) {
+        await new Promise((r) => setTimeout(r, 200 * (i + 1)));
+      }
+    }
+  }
+  throw lastErr;
+}
+
 // --- GET: WhatsApp webhook verification --------------------------------------
 // Echo back the 'challange' query parameter
 export async function GET(request: NextRequest) {
@@ -64,9 +80,11 @@ async function processIncoming(body: any, origin: string) {
     // Check if user is registered on Web
     let isUserRegistered = false;
     try {
-      const userInfo = await convexClient.query(api.users.getUserByWhatsApp, {
-        whatsappNumber: fromNumber,
-      });
+      const userInfo = await retryConvex(() =>
+        convexClient.query(api.users.getUserByWhatsApp, {
+          whatsappNumber: fromNumber,
+        })
+      );
       if (userInfo && userInfo.isRegistered) {
         isUserRegistered = true;
       }
@@ -91,13 +109,15 @@ async function processIncoming(body: any, origin: string) {
     // -- Step 1: Save user message (auto-creates user record if not present) --
     let userMessageId: any = null;
     try {
-      userMessageId = await convexClient.mutation(api.messages.storeMessage, {
-        whatsappNumber: fromNumber,
-        sender: "user",
-        kind: "text",
-        text: messageText,
-        status: "sending",
-      });
+      userMessageId = await retryConvex(() =>
+        convexClient.mutation(api.messages.storeMessage, {
+          whatsappNumber: fromNumber,
+          sender: "user",
+          kind: "text",
+          text: messageText,
+          status: "sending",
+        })
+      );
     } catch (err) {
       console.error("[WhatsApp Webhook] Failed to store user message:", err);
     }
@@ -105,11 +125,13 @@ async function processIncoming(body: any, origin: string) {
     // -- Step 2: Run the AI chat simulation --
     let simulateResult: any = null;
     try {
-      simulateResult = await convexClient.action(api.chat.simulate, {
-        kind: "text",
-        whatsappNumber: fromNumber,
-        text: messageText,
-      });
+      simulateResult = await retryConvex(() =>
+        convexClient.action(api.chat.simulate, {
+          kind: "text",
+          whatsappNumber: fromNumber,
+          text: messageText,
+        })
+      );
     } catch (simErr: any) {
       console.error("[WhatsApp Webhook] AI simulation error:", simErr);
       await sendWhatsAppText(
@@ -122,10 +144,12 @@ async function processIncoming(body: any, origin: string) {
     // Mark user message as sent
     if (userMessageId) {
       try {
-        await convexClient.mutation(api.messages.updateMessageStatus, {
-          messageId: userMessageId,
-          status: "sent",
-        });
+        await retryConvex(() =>
+          convexClient.mutation(api.messages.updateMessageStatus, {
+            messageId: userMessageId,
+            status: "sent",
+          })
+        );
       } catch (err) {
         console.error("[WhatsApp Webhook] Failed to update user message status:", err);
       }
@@ -153,22 +177,26 @@ async function processIncoming(body: any, origin: string) {
       // Store in database
       try {
         if (reply.type === "text") {
-          await convexClient.mutation(api.messages.storeMessage, {
-            whatsappNumber: fromNumber,
-            sender: "assistant",
-            kind: "text",
-            text: reply.text,
-          });
+          await retryConvex(() =>
+            convexClient.mutation(api.messages.storeMessage, {
+              whatsappNumber: fromNumber,
+              sender: "assistant",
+              kind: "text",
+              text: reply.text,
+            })
+          );
         } else if (reply.type === "document") {
-          await convexClient.mutation(api.messages.storeMessage, {
-            whatsappNumber: fromNumber,
-            sender: "assistant",
-            kind: "document",
-            filename: reply.filename,
-            mimeType: reply.mimeType,
-            text: reply.caption,
-            downloadUrl: reply.downloadUrl,
-          });
+          await retryConvex(() =>
+            convexClient.mutation(api.messages.storeMessage, {
+              whatsappNumber: fromNumber,
+              sender: "assistant",
+              kind: "document",
+              filename: reply.filename,
+              mimeType: reply.mimeType,
+              text: reply.caption,
+              downloadUrl: reply.downloadUrl,
+            })
+          );
         }
       } catch (err) {
         console.error("[WhatsApp Webhook] Failed to store assistant reply:", err);
