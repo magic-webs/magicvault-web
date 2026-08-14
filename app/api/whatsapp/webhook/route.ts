@@ -1,4 +1,4 @@
-import { NextRequest, NextResponse } from "next/server";
+import { NextRequest, NextResponse, after } from "next/server";
 import { convexClient } from "@/lib/convex-client";
 import { api } from "@/convex/_generated/api";
 import { sendWhatsAppText, sendWhatsAppDocument } from "@/lib/whatsapp-api";
@@ -47,12 +47,16 @@ export async function POST(request: NextRequest) {
 
   const origin = request.nextUrl.origin;
 
-  // Await processIncoming so Vercel Serverless environment does NOT freeze/kill execution!
-  try {
-    await processIncoming(body, origin);
-  } catch (err) {
-    console.error("[WhatsApp Webhook] Processing error:", err);
-  }
+  // Next.js 16 `after()`:
+  // Meta gets HTTP 200 in ~10ms so Meta webhooks never time out or get paused,
+  // while Vercel keeps the function instance active until processIncoming completes!
+  after(async () => {
+    try {
+      await processIncoming(body, origin);
+    } catch (err) {
+      console.error("[WhatsApp Webhook] Background processing error:", err);
+    }
+  });
 
   return NextResponse.json({ status: "ok" }, { status: 200 });
 }
