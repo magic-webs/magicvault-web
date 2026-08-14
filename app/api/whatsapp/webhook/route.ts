@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse, after } from "next/server";
 import { convexClient } from "@/lib/convex-client";
 import { api } from "@/convex/_generated/api";
-import { sendWhatsAppText, sendWhatsAppDocument } from "@/lib/whatsapp-api";
+import { sendWhatsAppText, sendWhatsAppDocument, downloadWhatsAppMedia } from "@/lib/whatsapp-api";
 
 // Helper: retry Convex operations if serverless socket resets occur
 async function retryConvex<T>(fn: () => Promise<T>, retries = 2): Promise<T> {
@@ -76,88 +76,129 @@ async function processIncoming(body: any, origin: string) {
 
     const incomingMsg = value.messages[0];
     const fromNumber: string = incomingMsg.from; // e.g. "918926029883"
-    const messageType: string = incomingMsg.type; // "text", "audio", "document", etc.
+    const messageType: string = incomingMsg.type; // "text", "audio", "document", "image", etc.
 
     console.log(
       `[WhatsApp Webhook] Incoming ${messageType} message from ${fromNumber}`
     );
 
-    // Check if user is registered on Web
-    let isUserRegistered = false;
-    try {
-      const userInfo = await retryConvex(() =>
-        convexClient.query(api.users.getUserByWhatsApp, {
-          whatsappNumber: fromNumber,
-        })
-      );
-      if (userInfo && userInfo.isRegistered) {
-        isUserRegistered = true;
-      }
-    } catch (err) {
-      console.error("[WhatsApp Webhook] Error checking user registration:", err);
-    }
-
-    // Only handle text messages in this integration
-    if (messageType !== "text") {
-      await sendWhatsAppText(
-        fromNumber,
-        "I can currently only process text messages via WhatsApp. Please type your question!"
-      );
-      return;
-    }
-
-    const messageText: string = incomingMsg.text?.body || "";
-    if (!messageText.trim()) {
-      return;
-    }
-
-    // -- Step 1: Save user message (auto-creates user record if not present) --
-    let userMessageId: any = null;
-    try {
-      userMessageId = await retryConvex(() =>
-        convexClient.mutation(api.messages.storeMessage, {
-          whatsappNumber: fromNumber,
-          sender: "user",
-          kind: "text",
-          text: messageText,
-          status: "sending",
-        })
-      );
-    } catch (err) {
-      console.error("[WhatsApp Webhook] Failed to store user message:", err);
-    }
-
-    // -- Step 2: Run the AI chat simulation --
     let simulateResult: any = null;
-    try {
-      simulateResult = await retryConvex(() =>
-        convexClient.action(api.chat.simulate, {
-          kind: "text",
-          whatsappNumber: fromNumber,
-          text: messageText,
-        })
-      );
-    } catch (simErr: any) {
-      console.error("[WhatsApp Webhook] AI simulation error:", simErr);
-      await sendWhatsAppText(
-        fromNumber,
-        "Sorry, I encountered an error while processing your request. Please try again."
-      );
-      return;
-    }
 
-    // Mark user message as sent
-    if (userMessageId) {
+    if (messageType === "text") {
+      const messageText: string = incomingMsg.text?.body || "";
+      if (!messageText.trim()) return;
+
+      // Save user message
+      let userMessageId: any = null;
       try {
-        await retryConvex(() =>
-          convexClient.mutation(api.messages.updateMessageStatus, {
-            messageId: userMessageId,
-            status: "sent",
+        userMessageId = await retryConvex(() =>
+          convexClient.mutation(api.messages.storeMessage, {
+            whatsappNumber: fromNumber,
+            sender: "user",
+            kind: "text",
+            text: messageText,
+            status: "sending",
           })
         );
       } catch (err) {
-        console.error("[WhatsApp Webhook] Failed to update user message status:", err);
+        console.error("[WhatsApp Webhook] Failed to store user message:", err);
       }
+
+      // Simulate text chat
+      try {
+        simulateResult = await retryConvex(() =>
+          convexClient.action(api.chat.simulate, {
+            kind: "text",
+            whatsappNumber: fromNumber,
+            text: messageText,
+          })
+        );
+      } catch (simErr: any) {
+        console.error("[WhatsApp Webhook] AI simulation error:", simErr);
+        await sendWhatsAppText(fromNumber, "Sorry, I encountered an error while processing your request. Please try again.");
+        return;
+      }
+
+      if (userMessageId) {
+        try {
+          await retryConvex(() =>
+            convexClient.mutation(api.messages.updateMessageStatus, {
+              messageId: userMessageId,
+              status: "sent",
+            })
+          );
+        } catch (err) {
+          console.error("[WhatsApp Webhook] Failed to update user message status:", err);
+        }
+      }
+    } else if (messageType === "audio" || messageType === "voice") {
+      const mediaId = incomingMsg.audio?.id || incomingMsg.voice?.id;
+      if (!mediaId) return;
+
+      try {
+        const { base64, mimeType } = await downloadWhatsAppMedia(mediaId);
+
+        await retryConvex(() =>
+          convexClient.mutation(api.messages.storeMessage, {
+            whatsappNumber: fromNumber,
+            sender: "user",
+            kind: "voice",
+            text: "🎤 Voice Message",
+            status: "sent",
+          })
+        );
+
+        simulateResult = await retryConvex(() =>
+          convexClient.action(api.chat.simulate, {
+            kind: "voice",
+            whatsappNumber: fromNumber,
+            audio: { base64, mimeType },
+          })
+        );
+      } catch (err: any) {
+        console.error("[WhatsApp Webhook] Audio processing error:", err);
+        await sendWhatsAppText(fromNumber, "⚠️ Sorry, I was unable to process your voice note. Please try sending a text message or uploading a document.");
+        return;
+      }
+    } else if (messageType === "document" || messageType === "image") {
+      const mediaObj = incomingMsg.document || incomingMsg.image;
+      const mediaId = mediaObj?.id;
+      const filename = mediaObj?.filename || (messageType === "image" ? "whatsapp_photo.jpg" : "whatsapp_document.pdf");
+      if (!mediaId) return;
+
+      try {
+        const { base64, mimeType } = await downloadWhatsAppMedia(mediaId);
+
+        await retryConvex(() =>
+          convexClient.mutation(api.messages.storeMessage, {
+            whatsappNumber: fromNumber,
+            sender: "user",
+            kind: "document",
+            filename,
+            mimeType,
+            text: `📄 Uploaded: ${filename}`,
+            status: "sent",
+          })
+        );
+
+        simulateResult = await retryConvex(() =>
+          convexClient.action(api.chat.simulate, {
+            kind: "upload",
+            whatsappNumber: fromNumber,
+            file: { base64, mimeType, filename },
+          })
+        );
+      } catch (err: any) {
+        console.error("[WhatsApp Webhook] Document processing error:", err);
+        await sendWhatsAppText(fromNumber, `⚠️ Sorry, I was unable to process "${filename}". Please try uploading a PDF or text file.`);
+        return;
+      }
+    } else {
+      await sendWhatsAppText(
+        fromNumber,
+        "I can process text questions, voice notes, and document/PDF uploads! Please send a text, voice note, or document file."
+      );
+      return;
     }
 
     // -- Step 3: Store assistant replies & send via WhatsApp API --------------

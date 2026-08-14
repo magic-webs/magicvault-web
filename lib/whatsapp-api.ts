@@ -105,3 +105,39 @@ export async function sendWhatsAppMessage(payload: Record<string, unknown>): Pro
 
   return res.json();
 }
+
+/**
+ * Fetch and download WhatsApp media by mediaId as base64 string.
+ */
+export async function downloadWhatsAppMedia(mediaId: string): Promise<{ base64: string; mimeType: string }> {
+  const token = process.env.WHATSAPP_ACCESS_TOKEN || WHATSAPP_ACCESS_TOKEN;
+  const version = process.env.WHATSAPP_API_VERSION || WHATSAPP_API_VERSION;
+
+  // Step 1: Get media URL
+  const metaUrl = `https://graph.facebook.com/${version}/${mediaId}`;
+  const resMeta = await fetch(metaUrl, {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+
+  if (!resMeta.ok) {
+    throw new Error(`Failed to fetch media metadata: ${resMeta.statusText}`);
+  }
+
+  const metaData = await resMeta.json();
+  const downloadUrl = metaData.url;
+  const mimeType = metaData.mime_type || "application/octet-stream";
+
+  // Step 2: Download binary stream
+  const resMedia = await fetch(downloadUrl, {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+
+  if (!resMedia.ok) {
+    throw new Error(`Failed to download media file: ${resMedia.statusText}`);
+  }
+
+  const arrayBuffer = await resMedia.arrayBuffer();
+  const base64 = Buffer.from(arrayBuffer).toString("base64");
+
+  return { base64, mimeType };
+}
