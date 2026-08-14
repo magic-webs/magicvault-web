@@ -8,7 +8,7 @@ import { sendWhatsAppText, sendWhatsAppDocument } from "@/lib/whatsapp-api";
 export async function GET(request: NextRequest) {
   try {
     const { searchParams } = new URL(request.url);
-    const challenge = searchParams.get("challange");
+    const challenge = searchParams.get("challange") || searchParams.get("hub.challenge");
     
     if (challenge) {
       return new NextResponse(challenge, { status: 200, headers: { "Content-Type": "text/plain" } });
@@ -29,7 +29,7 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "Invalid JSON body" }, { status: 400 });
   }
 
-  // Acknowledge immediately � Meta expects 200 within 5 seconds
+  // Acknowledge immediately - Meta expects 200 within 5 seconds
   // We process in the background after responding
   processIncoming(body).catch((err) =>
     console.error("[WhatsApp Webhook] Background processing error:", err)
@@ -38,7 +38,7 @@ export async function POST(request: NextRequest) {
   return NextResponse.json({ status: "ok" }, { status: 200 });
 }
 
-// --- Core logic: parse ? simulate ? reply ------------------------------------
+// --- Core logic: parse -> simulate -> reply ------------------------------------
 async function processIncoming(body: any) {
   try {
     // Validate it's a WhatsApp message event
@@ -47,7 +47,7 @@ async function processIncoming(body: any) {
     const value = change?.value;
 
     if (!value || !value.messages || value.messages.length === 0) {
-      // Status update or non-message event � ignore
+      // Status update or non-message event - ignore
       return;
     }
 
@@ -59,7 +59,7 @@ async function processIncoming(body: any) {
       `[WhatsApp Webhook] Incoming ${messageType} message from ${fromNumber}`
     );
 
-    // Only handle text messages in this integration (voice/docs require extra steps)
+    // Only handle text messages in this integration
     if (messageType !== "text") {
       await sendWhatsAppText(
         fromNumber,
@@ -73,10 +73,8 @@ async function processIncoming(body: any) {
       return;
     }
 
-    // -- Step 1: Save user message & run AI via existing simulate route logic --
-    // We call convex directly, same as the internal /api/simulate/message route does
+    // -- Step 1: Save user message --
     let userMessageId: any = null;
-
     try {
       userMessageId = await convexClient.mutation(api.messages.storeMessage, {
         whatsappNumber: fromNumber,
@@ -89,12 +87,22 @@ async function processIncoming(body: any) {
       console.error("[WhatsApp Webhook] Failed to store user message:", err);
     }
 
-    // -- Step 2: Run the AI chat simulation -----------------------------------
-    const simulateResult = await convexClient.action(api.chat.simulate, {
-      kind: "text",
-      whatsappNumber: fromNumber,
-      text: messageText,
-    });
+    // -- Step 2: Run the AI chat simulation --
+    let simulateResult: any = null;
+    try {
+      simulateResult = await convexClient.action(api.chat.simulate, {
+        kind: "text",
+        whatsappNumber: fromNumber,
+        text: messageText,
+      });
+    } catch (simErr: any) {
+      console.error("[WhatsApp Webhook] AI simulation error:", simErr);
+      await sendWhatsAppText(
+        fromNumber,
+        "Sorry, I encountered an error while processing your request. Please try again."
+      );
+      return;
+    }
 
     // Mark user message as sent
     if (userMessageId) {
@@ -110,6 +118,14 @@ async function processIncoming(body: any) {
 
     // -- Step 3: Store assistant replies & send via WhatsApp API --------------
     const replies: any[] = simulateResult?.replies ?? [];
+
+    if (replies.length === 0) {
+      await sendWhatsAppText(
+        fromNumber,
+        "Thank you for your message! No specific actions were generated for this prompt."
+      );
+      return;
+    }
 
     for (const reply of replies) {
       // Store in database
@@ -139,7 +155,6 @@ async function processIncoming(body: any) {
       // Send back via WhatsApp API
       try {
         if (reply.type === "text") {
-          // Format structured JSON replies as plain text for WhatsApp
           let textToSend = reply.text || "";
 
           // If it's a structured_details JSON, convert to readable text
@@ -147,7 +162,7 @@ async function processIncoming(body: any) {
             try {
               const parsed = JSON.parse(textToSend);
               const fieldLines = (parsed.fields || [])
-                .map((f: { key: string; value: string }) => `� *${f.key}*: ${f.value}`)
+                .map((f: { key: string; value: string }) => `- *${f.key}*: ${f.value}`)
                 .join("\n");
               textToSend = `*${parsed.title || "Details"}*\n\n${parsed.intro || ""}\n\n${fieldLines}\n\n${parsed.outro || ""}`;
             } catch {
@@ -157,8 +172,6 @@ async function processIncoming(body: any) {
 
           await sendWhatsAppText(fromNumber, textToSend);
         } else if (reply.type === "document" && reply.downloadUrl) {
-          // First send a text caption if present
-          // Then send the document
           await sendWhatsAppDocument(
             fromNumber,
             reply.downloadUrl,
