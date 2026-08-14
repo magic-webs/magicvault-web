@@ -46,28 +46,40 @@ export const register = mutation({
       throw new Error("WhatsApp number is required");
     }
 
+    if (args.password.length < 8) {
+      throw new Error("Password must be at least 8 characters.");
+    }
+
     // Check if user already exists
     const existing = await ctx.db
       .query("users")
       .withIndex("by_whatsappNumber", (q) => q.eq("whatsappNumber", normalizedNumber))
       .unique();
 
+    let userId: any;
+
     if (existing) {
-      throw new Error("An account with this WhatsApp number already exists.");
+      // If user has already registered a password, block duplicate registration
+      if (existing.passwordHash && existing.passwordHash.length > 0) {
+        throw new Error("An account with this WhatsApp number already exists.");
+      }
+
+      // If user was auto-created from WhatsApp without password, complete registration
+      const passwordHash = await hashPassword(args.password, normalizedNumber);
+      await ctx.db.patch(existing._id, {
+        passwordHash,
+        ...(args.name ? { name: args.name } : {}),
+      });
+      userId = existing._id;
+    } else {
+      const passwordHash = await hashPassword(args.password, normalizedNumber);
+      userId = await ctx.db.insert("users", {
+        whatsappNumber: normalizedNumber,
+        passwordHash,
+        name: args.name,
+        createdAt: Date.now(),
+      });
     }
-
-    if (args.password.length < 8) {
-      throw new Error("Password must be at least 8 characters.");
-    }
-
-    const passwordHash = await hashPassword(args.password, normalizedNumber);
-
-    const userId = await ctx.db.insert("users", {
-      whatsappNumber: normalizedNumber,
-      passwordHash,
-      name: args.name,
-      createdAt: Date.now(),
-    });
 
     const token = generateToken();
     const expiry = Date.now() + 30 * 24 * 60 * 60 * 1000; // 30 days
@@ -101,7 +113,7 @@ export const login = mutation({
       .withIndex("by_whatsappNumber", (q) => q.eq("whatsappNumber", normalizedNumber))
       .unique();
 
-    if (!user) {
+    if (!user || !user.passwordHash) {
       throw new Error("Invalid phone number or password.");
     }
 
@@ -153,6 +165,26 @@ export const getUserByToken = query({
       id: user._id,
       whatsappNumber: user.whatsappNumber,
       name: user.name ?? null,
+    };
+  },
+});
+
+export const getUserByWhatsApp = query({
+  args: {
+    whatsappNumber: v.string(),
+  },
+  handler: async (ctx, args) => {
+    const user = await ctx.db
+      .query("users")
+      .withIndex("by_whatsappNumber", (q) => q.eq("whatsappNumber", args.whatsappNumber))
+      .unique();
+
+    if (!user) return null;
+
+    return {
+      id: user._id,
+      whatsappNumber: user.whatsappNumber,
+      isRegistered: !!(user.passwordHash && user.passwordHash.length > 0),
     };
   },
 });

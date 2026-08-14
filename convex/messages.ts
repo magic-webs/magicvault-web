@@ -49,12 +49,18 @@ export const storeMessage = mutation({
     status: v.optional(v.union(v.literal("sending"), v.literal("sent"), v.literal("error"))),
   },
   handler: async (ctx, args) => {
-    const user = await ctx.db
+    let user = await ctx.db
       .query("users")
       .withIndex("by_whatsappNumber", (q) => q.eq("whatsappNumber", args.whatsappNumber))
       .unique();
+
     if (!user) {
-      throw new Error("User not found for simulated number");
+      const userId = await ctx.db.insert("users", {
+        whatsappNumber: args.whatsappNumber,
+        passwordHash: "",
+        createdAt: Date.now(),
+      });
+      user = (await ctx.db.get(userId))!;
     }
 
     const { whatsappNumber, ...msgDetails } = args;

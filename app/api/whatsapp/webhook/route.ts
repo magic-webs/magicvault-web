@@ -29,9 +29,11 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "Invalid JSON body" }, { status: 400 });
   }
 
+  const origin = request.nextUrl.origin;
+
   // Acknowledge immediately - Meta expects 200 within 5 seconds
   // We process in the background after responding
-  processIncoming(body).catch((err) =>
+  processIncoming(body, origin).catch((err) =>
     console.error("[WhatsApp Webhook] Background processing error:", err)
   );
 
@@ -39,7 +41,7 @@ export async function POST(request: NextRequest) {
 }
 
 // --- Core logic: parse -> simulate -> reply ------------------------------------
-async function processIncoming(body: any) {
+async function processIncoming(body: any, origin: string) {
   try {
     // Validate it's a WhatsApp message event
     const entry = body?.entry?.[0];
@@ -59,6 +61,19 @@ async function processIncoming(body: any) {
       `[WhatsApp Webhook] Incoming ${messageType} message from ${fromNumber}`
     );
 
+    // Check if user is registered on Web
+    let isUserRegistered = false;
+    try {
+      const userInfo = await convexClient.query(api.users.getUserByWhatsApp, {
+        whatsappNumber: fromNumber,
+      });
+      if (userInfo && userInfo.isRegistered) {
+        isUserRegistered = true;
+      }
+    } catch (err) {
+      console.error("[WhatsApp Webhook] Error checking user registration:", err);
+    }
+
     // Only handle text messages in this integration
     if (messageType !== "text") {
       await sendWhatsAppText(
@@ -73,7 +88,7 @@ async function processIncoming(body: any) {
       return;
     }
 
-    // -- Step 1: Save user message --
+    // -- Step 1: Save user message (auto-creates user record if not present) --
     let userMessageId: any = null;
     try {
       userMessageId = await convexClient.mutation(api.messages.storeMessage, {
@@ -127,7 +142,14 @@ async function processIncoming(body: any) {
       return;
     }
 
-    for (const reply of replies) {
+    // If user is not registered on the web app, prepare registration prompt
+    const registerUrl = `${origin}/register`;
+    const registerPrompt = `\n\n👉 *Web Vault:* Complete your account registration here to access your dashboard and documents:\n${registerUrl}`;
+
+    for (let i = 0; i < replies.length; i++) {
+      const reply = replies[i];
+      const isLastReply = i === replies.length - 1;
+
       // Store in database
       try {
         if (reply.type === "text") {
@@ -170,6 +192,11 @@ async function processIncoming(body: any) {
             }
           }
 
+          // Attach register link to text if user is unregistered and it's the last reply
+          if (!isUserRegistered && isLastReply) {
+            textToSend += registerPrompt;
+          }
+
           await sendWhatsAppText(fromNumber, textToSend);
         } else if (reply.type === "document" && reply.downloadUrl) {
           await sendWhatsAppDocument(
@@ -178,6 +205,11 @@ async function processIncoming(body: any) {
             reply.filename || "Document",
             reply.caption || undefined
           );
+
+          // If unregistered and document is last reply, send register link as follow-up text
+          if (!isUserRegistered && isLastReply) {
+            await sendWhatsAppText(fromNumber, registerPrompt.trim());
+          }
         }
       } catch (err) {
         console.error("[WhatsApp Webhook] Failed to send reply via WhatsApp API:", err);
