@@ -47,11 +47,12 @@ export async function POST(request: NextRequest) {
 
   const origin = request.nextUrl.origin;
 
-  // Acknowledge immediately - Meta expects 200 within 5 seconds
-  // We process in the background after responding
-  processIncoming(body, origin).catch((err) =>
-    console.error("[WhatsApp Webhook] Background processing error:", err)
-  );
+  // Await processIncoming so Vercel Serverless environment does NOT freeze/kill execution!
+  try {
+    await processIncoming(body, origin);
+  } catch (err) {
+    console.error("[WhatsApp Webhook] Processing error:", err);
+  }
 
   return NextResponse.json({ status: "ok" }, { status: 200 });
 }
