@@ -17,8 +17,8 @@ export default function RegisterPage() {
   const router = useRouter();
   const [countryCode, setCountryCode] = useState(DEFAULT_COUNTRY_CODE);
   const [localNumber, setLocalNumber] = useState('');
-  const [password, setPassword] = useState('');
-  const [confirmPassword, setConfirmPassword] = useState('');
+  const [password, setPassword] = useState('12345678');
+  const [confirmPassword, setConfirmPassword] = useState('12345678');
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState('');
 

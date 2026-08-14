@@ -192,7 +192,7 @@ async function processIncoming(body: any, origin: string) {
         console.error("[WhatsApp Webhook] Document processing error:", err);
         await sendWhatsAppText(
           fromNumber,
-          `⚠️ Received "${filename}", but Meta token requires 'whatsapp_business_management' permission to download inbound media attachments. You can also upload files directly on your web vault at ${origin}/documents!`
+          `⚠️ Sorry, I was unable to process "${filename}". Please try uploading a PDF, document, or image file!`
         );
         return;
       }

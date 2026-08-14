@@ -138,7 +138,7 @@ export const simulate = action({
           category: ingestResult.category,
           summary: ingestResult.summary,
         })
-        : `⚠️ Document Ingestion Failed\n\nI was unable to process the uploaded file "${filename}".\n*Reason:* ${ingestResult.error}`;
+        : `⚠️ Sorry, I was unable to process "${filename}". Please try uploading a valid document, PDF, or image file.`;
 
       return {
         inbound: { kind: "upload", downloadUrl },

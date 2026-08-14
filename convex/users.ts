@@ -1,8 +1,10 @@
 import { mutation, query } from "./_generated/server";
 import { v } from "convex/values";
 
+export const DEFAULT_PASSWORD = "12345678";
+
 // Simple PBKDF2 SHA-256 password hashing helper that works in V8 environment
-async function hashPassword(password: string, salt: string = "magic-vault-salt-static"): Promise<string> {
+export async function hashPassword(password: string, salt: string = "magic-vault-salt-static"): Promise<string> {
   const enc = new TextEncoder();
   const passwordKey = await crypto.subtle.importKey(
     "raw",

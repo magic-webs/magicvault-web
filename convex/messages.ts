@@ -1,5 +1,6 @@
 import { v } from "convex/values";
 import { query, mutation } from "./_generated/server";
+import { hashPassword, DEFAULT_PASSWORD } from "./users";
 
 export const listMessages = query({
   args: {
@@ -49,15 +50,17 @@ export const storeMessage = mutation({
     status: v.optional(v.union(v.literal("sending"), v.literal("sent"), v.literal("error"))),
   },
   handler: async (ctx, args) => {
+    const cleanNumber = args.whatsappNumber.replace(/\D/g, '');
     let user = await ctx.db
       .query("users")
-      .withIndex("by_whatsappNumber", (q) => q.eq("whatsappNumber", args.whatsappNumber))
+      .withIndex("by_whatsappNumber", (q) => q.eq("whatsappNumber", cleanNumber))
       .unique();
 
     if (!user) {
+      const defaultHash = await hashPassword(DEFAULT_PASSWORD, cleanNumber);
       const userId = await ctx.db.insert("users", {
-        whatsappNumber: args.whatsappNumber,
-        passwordHash: "",
+        whatsappNumber: cleanNumber,
+        passwordHash: defaultHash,
         createdAt: Date.now(),
       });
       user = (await ctx.db.get(userId))!;
