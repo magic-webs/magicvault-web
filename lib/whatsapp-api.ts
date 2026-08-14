@@ -112,28 +112,68 @@ export async function sendWhatsAppMessage(payload: Record<string, unknown>): Pro
 export async function downloadWhatsAppMedia(mediaId: string): Promise<{ base64: string; mimeType: string }> {
   const token = process.env.WHATSAPP_ACCESS_TOKEN || WHATSAPP_ACCESS_TOKEN;
   const version = process.env.WHATSAPP_API_VERSION || WHATSAPP_API_VERSION;
+  const baseUrl = process.env.WHATSAPP_API_URL || WHATSAPP_API_URL;
 
-  // Step 1: Get media URL
-  const metaUrl = `https://graph.facebook.com/${version}/${mediaId}`;
-  const resMeta = await fetch(metaUrl, {
-    headers: { Authorization: `Bearer ${token}` },
-  });
+  const candidateUrls = [
+    `https://graph.facebook.com/${version}/${mediaId}`,
+    `${baseUrl}/${version}/${mediaId}`,
+    `https://graph.facebook.com/${version}/${mediaId}?access_token=${encodeURIComponent(token)}`,
+    `${baseUrl}/${version}/${mediaId}?access_token=${encodeURIComponent(token)}`,
+  ];
 
-  if (!resMeta.ok) {
-    throw new Error(`Failed to fetch media metadata: ${resMeta.statusText}`);
+  let metaData: any = null;
+  let lastErr: string = "";
+
+  for (const url of candidateUrls) {
+    try {
+      const res = await fetch(url, {
+        headers: {
+          Authorization: `Bearer ${token}`,
+          "User-Agent": "curl/7.64.1",
+        },
+      });
+      if (res.ok) {
+        metaData = await res.json();
+        if (metaData && metaData.url) {
+          break;
+        }
+      } else {
+        lastErr = `${res.status} ${res.statusText}`;
+      }
+    } catch (e: any) {
+      lastErr = e.message;
+    }
   }
 
-  const metaData = await resMeta.json();
+  if (!metaData || !metaData.url) {
+    throw new Error(`Failed to fetch media metadata for ID ${mediaId}: ${lastErr || "Unauthorized"}`);
+  }
+
   const downloadUrl = metaData.url;
   const mimeType = metaData.mime_type || "application/octet-stream";
 
   // Step 2: Download binary stream
   const resMedia = await fetch(downloadUrl, {
-    headers: { Authorization: `Bearer ${token}` },
+    headers: {
+      Authorization: `Bearer ${token}`,
+      "User-Agent": "curl/7.64.1",
+    },
   });
 
   if (!resMedia.ok) {
-    throw new Error(`Failed to download media file: ${resMedia.statusText}`);
+    // Try with access_token query param if Bearer header fails
+    const separator = downloadUrl.includes("?") ? "&" : "?";
+    const fallbackRes = await fetch(`${downloadUrl}${separator}access_token=${encodeURIComponent(token)}`, {
+      headers: { "User-Agent": "curl/7.64.1" },
+    });
+
+    if (!fallbackRes.ok) {
+      throw new Error(`Failed to download media file: ${resMedia.statusText}`);
+    }
+
+    const arrayBuffer = await fallbackRes.arrayBuffer();
+    const base64 = Buffer.from(arrayBuffer).toString("base64");
+    return { base64, mimeType };
   }
 
   const arrayBuffer = await resMedia.arrayBuffer();
