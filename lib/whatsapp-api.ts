@@ -23,7 +23,7 @@ function getAuthHeaders(): HeadersInit {
 /**
  * Send a plain text message to a WhatsApp number.
  */
-export async function sendWhatsAppText(to: string, body: string): Promise<void> {
+export async function sendWhatsAppText(to: string, body: string): Promise<any> {
   const payload = {
     messaging_product: "whatsapp",
     recipient_type: "individual",
@@ -43,6 +43,8 @@ export async function sendWhatsAppText(to: string, body: string): Promise<void> 
     console.error("[WhatsApp] Failed to send text message:", errorText);
     throw new Error(`WhatsApp API error ${res.status}: ${errorText}`);
   }
+
+  return res.json();
 }
 
 /**

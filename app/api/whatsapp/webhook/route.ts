@@ -47,8 +47,8 @@ export async function POST(request: NextRequest) {
 
   const origin = request.nextUrl.origin;
 
-  // Next.js 16 `after()`:
-  // Meta gets HTTP 200 in ~10ms so Meta webhooks never time out or get paused,
+  // Next.js 16 after():
+  // Meta gets HTTP 200 in ~10ms so Meta webhooks never time out,
   // while Vercel keeps the function instance active until processIncoming completes!
   after(async () => {
     try {
@@ -75,7 +75,7 @@ async function processIncoming(body: any, origin: string) {
     }
 
     const incomingMsg = value.messages[0];
-    const fromNumber: string = incomingMsg.from; // e.g. "15553320705"
+    const fromNumber: string = incomingMsg.from; // e.g. "918926029883"
     const messageType: string = incomingMsg.type; // "text", "audio", "document", etc.
 
     console.log(
@@ -171,13 +171,8 @@ async function processIncoming(body: any, origin: string) {
       return;
     }
 
-    // If user is not registered on the web app, prepare registration prompt
-    const registerUrl = `${origin}/register`;
-    const registerPrompt = `\n\n👉 *Web Vault:* Complete your account registration here to access your dashboard and documents:\n${registerUrl}`;
-
     for (let i = 0; i < replies.length; i++) {
       const reply = replies[i];
-      const isLastReply = i === replies.length - 1;
 
       // Store in database
       try {
@@ -225,11 +220,6 @@ async function processIncoming(body: any, origin: string) {
             }
           }
 
-          // Attach register link to text if user is unregistered and it's the last reply
-          if (!isUserRegistered && isLastReply) {
-            textToSend += registerPrompt;
-          }
-
           await sendWhatsAppText(fromNumber, textToSend);
         } else if (reply.type === "document" && reply.downloadUrl) {
           await sendWhatsAppDocument(
@@ -238,11 +228,6 @@ async function processIncoming(body: any, origin: string) {
             reply.filename || "Document",
             reply.caption || undefined
           );
-
-          // If unregistered and document is last reply, send register link as follow-up text
-          if (!isUserRegistered && isLastReply) {
-            await sendWhatsAppText(fromNumber, registerPrompt.trim());
-          }
         }
       } catch (err) {
         console.error("[WhatsApp Webhook] Failed to send reply via WhatsApp API:", err);
