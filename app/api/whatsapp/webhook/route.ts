@@ -3,25 +3,21 @@ import { convexClient } from "@/lib/convex-client";
 import { api } from "@/convex/_generated/api";
 import { sendWhatsAppText, sendWhatsAppDocument } from "@/lib/whatsapp-api";
 
-const WEBHOOK_VERIFY_TOKEN =
-  process.env.WHATSAPP_WEBHOOK_VERIFY_TOKEN || "magicvault_webhook_token";
-
 // --- GET: WhatsApp webhook verification --------------------------------------
-// Meta sends a GET request with hub.mode, hub.verify_token, hub.challenge.
-// We must echo back hub.challenge if the token matches.
+// Echo back the 'challange' query parameter
 export async function GET(request: NextRequest) {
-  const { searchParams } = new URL(request.url);
-  const mode = searchParams.get("hub.mode");
-  const token = searchParams.get("hub.verify_token");
-  const challenge = searchParams.get("hub.challenge");
-
-  if (mode === "subscribe" && token === WEBHOOK_VERIFY_TOKEN) {
-    console.log("[WhatsApp Webhook] Verified successfully.");
-    return new NextResponse(challenge, { status: 200 });
+  try {
+    const { searchParams } = new URL(request.url);
+    const challenge = searchParams.get("challange");
+    
+    if (challenge) {
+      return new NextResponse(challenge, { status: 200, headers: { "Content-Type": "text/plain" } });
+    } else {
+      return new NextResponse("no challange", { status: 200, headers: { "Content-Type": "text/plain" } });
+    }
+  } catch (error: any) {
+    return new NextResponse(error.message, { status: 500 });
   }
-
-  console.warn("[WhatsApp Webhook] Verification failed. Token mismatch.");
-  return NextResponse.json({ error: "Verification failed" }, { status: 403 });
 }
 
 // --- POST: Receive incoming WhatsApp messages ---------------------------------
@@ -33,7 +29,7 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "Invalid JSON body" }, { status: 400 });
   }
 
-  // Acknowledge immediately — Meta expects 200 within 5 seconds
+  // Acknowledge immediately ï¿½ Meta expects 200 within 5 seconds
   // We process in the background after responding
   processIncoming(body).catch((err) =>
     console.error("[WhatsApp Webhook] Background processing error:", err)
@@ -51,7 +47,7 @@ async function processIncoming(body: any) {
     const value = change?.value;
 
     if (!value || !value.messages || value.messages.length === 0) {
-      // Status update or non-message event — ignore
+      // Status update or non-message event ï¿½ ignore
       return;
     }
 
@@ -151,7 +147,7 @@ async function processIncoming(body: any) {
             try {
               const parsed = JSON.parse(textToSend);
               const fieldLines = (parsed.fields || [])
-                .map((f: { key: string; value: string }) => `• *${f.key}*: ${f.value}`)
+                .map((f: { key: string; value: string }) => `ï¿½ *${f.key}*: ${f.value}`)
                 .join("\n");
               textToSend = `*${parsed.title || "Details"}*\n\n${parsed.intro || ""}\n\n${fieldLines}\n\n${parsed.outro || ""}`;
             } catch {
